@@ -1,5 +1,6 @@
 import { it } from './it';
 import { en } from './en';
+import { BASE_PATH } from '../basePath';
 
 export type Locale = 'it' | 'en';
 
@@ -9,7 +10,7 @@ let currentLocale: Locale = 'it';
 
 export async function initLocale(): Promise<void> {
 	try {
-		const res = await fetch('/api/locale');
+		const res = await fetch(`${BASE_PATH}/api/locale`);
 		if (res.ok) {
 			const data = await res.json();
 			if (data.locale && translations[data.locale as Locale]) {

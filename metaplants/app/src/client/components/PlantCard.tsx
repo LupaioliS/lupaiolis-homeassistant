@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
+import { withBase } from '../basePath';
 
 interface PlantCardProps {
 	plant: Plant;
@@ -195,7 +196,7 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 	return (
 		<div className="plant-card">
 			{plant.imageUrl && (
-				<img className="plant-photo" src={plant.imageUrl} alt={plant.name} />
+				<img className="plant-photo" src={withBase(plant.imageUrl)} alt={plant.name} />
 			)}
 			<h3>{plant.name}</h3>
 			<div className="species">{plant.species}</div>
@@ -283,7 +284,7 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 							📷 {issueUploading ? t('plant.uploading') : issueImageUrl ? t('plant.changePhoto') : t('plant.addPhoto')}
 							<input type="file" accept="image/*" onChange={handleIssuePhoto} disabled={issueUploading} hidden />
 						</label>
-						{issueImageUrl && <img className="issue-thumb" src={issueImageUrl} alt="" />}
+						{issueImageUrl && <img className="issue-thumb" src={withBase(issueImageUrl)} alt="" />}
 					</div>
 
 					{activeIssues.length > 0 && (
@@ -292,7 +293,7 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 							{activeIssues.map((issue) => (
 								<div key={issue.id} className="health-item active">
 									<span>{getIssueLabel(issue)} - {formatDate(issue.detectedDate)}</span>
-									{issue.imageUrl && <img className="issue-thumb" src={issue.imageUrl} alt="" />}
+									{issue.imageUrl && <img className="issue-thumb" src={withBase(issue.imageUrl)} alt="" />}
 									<button className="btn btn-sm btn-secondary" onClick={() => handleResolveIssue(issue.id)}>✓</button>
 								</div>
 							))}
@@ -305,7 +306,7 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 							{resolvedIssues.map((issue) => (
 								<div key={issue.id} className="health-item resolved">
 									<span>{getIssueLabel(issue)} - {formatDate(issue.detectedDate)} → {formatDate(issue.resolvedDate)}</span>
-									{issue.imageUrl && <img className="issue-thumb" src={issue.imageUrl} alt="" />}
+									{issue.imageUrl && <img className="issue-thumb" src={withBase(issue.imageUrl)} alt="" />}
 									{issue.treatment && <small>{issue.treatment}</small>}
 								</div>
 							))}

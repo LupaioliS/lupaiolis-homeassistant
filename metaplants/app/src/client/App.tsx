@@ -4,6 +4,7 @@ import { api } from './api';
 import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { t, initLocale } from './i18n';
+import { BASE_PATH } from './basePath';
 
 export function App() {
 	const [plants, setPlants] = useState<Plant[]>([]);
@@ -26,7 +27,7 @@ export function App() {
 
 	// Real-time updates via SSE
 	useEffect(() => {
-		const evtSource = new EventSource('/api/events');
+		const evtSource = new EventSource(`${BASE_PATH}/api/events`);
 		evtSource.onmessage = (event) => {
 			try {
 				const data = JSON.parse(event.data);

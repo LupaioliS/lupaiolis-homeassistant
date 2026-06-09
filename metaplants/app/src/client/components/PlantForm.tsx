@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { Plant, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
+import { withBase } from '../basePath';
 
 interface PlantFormProps {
 	plant: Plant | null;
@@ -67,7 +68,7 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 					<div className="form-group">
 						<label>{t('plant.photo')}</label>
 						<div className="photo-field">
-							{imageUrl && <img className="photo-preview" src={imageUrl} alt="" />}
+							{imageUrl && <img className="photo-preview" src={withBase(imageUrl)} alt="" />}
 							<div className="photo-actions">
 								<label className="btn btn-secondary btn-sm">
 									{uploading ? t('plant.uploading') : imageUrl ? t('plant.changePhoto') : t('plant.addPhoto')}

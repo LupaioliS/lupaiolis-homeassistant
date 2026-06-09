@@ -1,6 +1,7 @@
 import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/types';
+import { BASE_PATH } from './basePath';
 
-const BASE = '/api';
+const BASE = `${BASE_PATH}/api`;
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
 	const headers: Record<string, string> = { ...(options?.headers as Record<string, string>) };
