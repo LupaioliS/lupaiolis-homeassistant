@@ -24,6 +24,12 @@ async function start() {
 		reply.hijack();
 	});
 
+	// Locale endpoint for client
+	const serverLocale = process.env.METAPLANTS_LANG || process.env.LANG?.split('.')[0]?.split('_')[0] || 'it';
+	fastify.get('/api/locale', async () => {
+		return { locale: serverLocale };
+	});
+
 	// Serve React static files
 	const clientPath = path.resolve(__dirname, '../../dist/client');
 	await fastify.register(fastifyStatic, {

@@ -3,13 +3,17 @@ import type { Plant } from '../shared/types';
 import { api } from './api';
 import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
-import { t, setLocale, getLocale, type Locale } from './i18n';
+import { t, initLocale } from './i18n';
 
 export function App() {
 	const [plants, setPlants] = useState<Plant[]>([]);
 	const [showForm, setShowForm] = useState(false);
 	const [editingPlant, setEditingPlant] = useState<Plant | null>(null);
-	const [locale, setCurrentLocale] = useState<Locale>(getLocale());
+	const [ready, setReady] = useState(false);
+
+	useEffect(() => {
+		initLocale().then(() => setReady(true));
+	}, []);
 
 	const loadPlants = useCallback(async () => {
 		const data = await api.getPlants();
@@ -43,16 +47,6 @@ export function App() {
 		};
 		return () => evtSource.close();
 	}, []);
-
-	useEffect(() => {
-		const handler = () => setCurrentLocale(getLocale());
-		window.addEventListener('locale-changed', handler);
-		return () => window.removeEventListener('locale-changed', handler);
-	}, []);
-
-	const handleLocaleChange = (newLocale: Locale) => {
-		setLocale(newLocale);
-	};
 
 	const handleWater = async (id: string) => {
 		await api.logAction(id, 'water');
@@ -95,10 +89,6 @@ export function App() {
 			<header>
 				<h1>🌱 {t('app.title')}</h1>
 				<p style={{ color: '#16a34a', marginTop: 4 }}>{t('app.subtitle')}</p>
-				<div className="locale-switcher">
-					<button className={`btn btn-sm ${locale === 'it' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => handleLocaleChange('it')}>🇮🇹 IT</button>
-					<button className={`btn btn-sm ${locale === 'en' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => handleLocaleChange('en')}>🇬🇧 EN</button>
-				</div>
 			</header>
 
 			<div style={{ marginBottom: 20, textAlign: 'right' }}>

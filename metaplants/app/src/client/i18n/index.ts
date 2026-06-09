@@ -7,9 +7,16 @@ const translations: Record<Locale, typeof it> = { it, en };
 
 let currentLocale: Locale = 'it';
 
-export function setLocale(locale: Locale) {
-	currentLocale = locale;
-	window.dispatchEvent(new Event('locale-changed'));
+export async function initLocale(): Promise<void> {
+	try {
+		const res = await fetch('/api/locale');
+		if (res.ok) {
+			const data = await res.json();
+			if (data.locale && translations[data.locale as Locale]) {
+				currentLocale = data.locale as Locale;
+			}
+		}
+	} catch { /* fallback to default */ }
 }
 
 export function getLocale(): Locale {
