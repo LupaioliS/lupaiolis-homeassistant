@@ -3,9 +3,13 @@ import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/ty
 const BASE = '/api';
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
+	const headers: Record<string, string> = { ...(options?.headers as Record<string, string>) };
+	// Only declare a JSON content-type when we actually send a body,
+	// otherwise Fastify rejects empty-body requests (e.g. DELETE).
+	if (options?.body != null) headers['Content-Type'] = 'application/json';
 	const res = await fetch(`${BASE}${url}`, {
-		headers: { 'Content-Type': 'application/json' },
 		...options,
+		headers,
 	});
 	if (!res.ok) throw new Error(`HTTP ${res.status}`);
 	return res.json();
