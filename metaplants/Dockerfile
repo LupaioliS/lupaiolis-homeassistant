@@ -1,4 +1,4 @@
-FROM node:18-alpine
+FROM node:22-alpine
 
 # Imposta la cartella di lavoro
 WORKDIR /usr/src/app
