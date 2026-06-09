@@ -20,6 +20,21 @@ export function ensureUploadsDir() {
 	}
 }
 
+function deleteUpload(imageUrl?: string) {
+	if (!imageUrl) return;
+	// Stored as "uploads/<filename>" — only delete files inside UPLOADS_DIR
+	const filename = path.basename(imageUrl);
+	if (!imageUrl.startsWith('uploads/') || !filename) return;
+	const file = path.join(UPLOADS_DIR, filename);
+	if (fs.existsSync(file)) {
+		try {
+			fs.unlinkSync(file);
+		} catch {
+			/* ignore */
+		}
+	}
+}
+
 // In-memory caches to avoid disk reads on every request
 let plantsCache: Plant[] | null = null;
 let actionsCache: PlantAction[] | null = null;
@@ -94,6 +109,17 @@ export const store = {
 		if (index === -1) return undefined;
 		const [removed] = plants.splice(index, 1);
 		writePlants(plants);
+
+		// Remove associated actions
+		const actions = readActions().filter((a) => a.plantId !== id);
+		writeActions(actions);
+
+		// Remove uploaded photos (plant + health issues)
+		deleteUpload(removed.imageUrl);
+		for (const issue of removed.healthIssues ?? []) {
+			deleteUpload(issue.imageUrl);
+		}
+
 		return removed;
 	},
 
