@@ -1,5 +1,5 @@
 name: "MetaPlants"
-version: "1.1.0"
+version: "1.1.1"
 slug: "metaplants"
 description: "Plant manager per Home Assistant - gestisci irrigazione e fertilizzazione con MQTT"
 arch:
