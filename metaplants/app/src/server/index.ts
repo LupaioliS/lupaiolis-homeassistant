@@ -24,9 +24,6 @@ async function start() {
 		reply.hijack();
 	});
 
-	// API routes
-	await fastify.register(plantRoutes, { prefix: '/api' });
-
 	// Serve React static files
 	const clientPath = path.resolve(__dirname, '../../dist/client');
 	await fastify.register(fastifyStatic, {
