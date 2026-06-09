@@ -48,20 +48,26 @@ export function App() {
 		return () => evtSource.close();
 	}, []);
 
+	const patchPlant = useCallback((updated: Plant) => {
+		setPlants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+	}, []);
+
 	const handleWater = async (id: string) => {
-		await api.logAction(id, 'water');
-		// UI updates via SSE broadcast — no extra fetch needed
+		const now = new Date().toISOString();
+		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastWatered: now } : p)));
+		api.logAction(id, 'water').catch(loadPlants);
 	};
 
 	const handleFertilize = async (id: string) => {
-		await api.logAction(id, 'fertilize');
-		// UI updates via SSE broadcast — no extra fetch needed
+		const now = new Date().toISOString();
+		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastFertilized: now } : p)));
+		api.logAction(id, 'fertilize').catch(loadPlants);
 	};
 
 	const handleDelete = async (id: string) => {
 		if (!confirm(t('plant.confirmDelete'))) return;
-		await api.deletePlant(id);
-		// UI updates via SSE broadcast — no extra fetch needed
+		setPlants((prev) => prev.filter((p) => p.id !== id));
+		api.deletePlant(id).catch(loadPlants);
 	};
 
 	const handleEdit = (plant: Plant) => {
@@ -112,6 +118,7 @@ export function App() {
 							onEdit={() => handleEdit(plant)}
 							onDelete={() => handleDelete(plant.id)}
 							onRefresh={loadPlants}
+							onPatch={patchPlant}
 						/>
 					))}
 				</div>

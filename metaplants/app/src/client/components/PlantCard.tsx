@@ -10,6 +10,7 @@ interface PlantCardProps {
 	onEdit: () => void;
 	onDelete: () => void;
 	onRefresh: () => void;
+	onPatch: (plant: Plant) => void;
 }
 
 function getDaysAgo(dateStr?: string): number | null {
@@ -88,7 +89,7 @@ function ActionButton({ disabled: initialDisabled, className, onClick, label }: 
 	);
 }
 
-export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRefresh }: PlantCardProps) {
+export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRefresh, onPatch }: PlantCardProps) {
 	const [showHealth, setShowHealth] = useState(false);
 	const [showProducts, setShowProducts] = useState(false);
 	const [issueType, setIssueType] = useState<HealthIssueType>('pest');
@@ -101,41 +102,59 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 	const season = getCurrentSeason();
 
 	const handleRepot = async () => {
-		await api.logAction(plant.id, 'repot');
-		// UI updates via SSE broadcast
+		onPatch({ ...plant, lastRepotted: new Date().toISOString() });
+		api.logAction(plant.id, 'repot').catch(onRefresh);
 	};
 
 	const handlePrune = async () => {
-		await api.logAction(plant.id, 'prune');
-		// UI updates via SSE broadcast
+		onPatch({ ...plant, lastPruned: new Date().toISOString() });
+		api.logAction(plant.id, 'prune').catch(onRefresh);
 	};
 
 	const handleAddIssue = async () => {
 		if (!issueName) return;
-		await api.addHealthIssue(plant.id, {
-			type: issueType,
-			name: issueName,
-			detectedDate: new Date().toISOString(),
+		const detectedDate = new Date().toISOString();
+		const tempId = `tmp-${Date.now()}`;
+		// Optimistic update
+		onPatch({
+			...plant,
+			healthIssues: [
+				...(plant.healthIssues ?? []),
+				{ id: tempId, type: issueType, name: issueName as HealthIssue['name'], detectedDate },
+			],
 		});
 		setIssueName('');
-		onRefresh();
+		// Sync in background; SSE will reconcile with the real ID
+		api.addHealthIssue(plant.id, { type: issueType, name: issueName, detectedDate }).catch(onRefresh);
 	};
 
 	const handleResolveIssue = async (issueId: string) => {
-		await api.resolveHealthIssue(plant.id, issueId);
-		onRefresh();
+		// Optimistic update
+		onPatch({
+			...plant,
+			healthIssues: (plant.healthIssues ?? []).map((i) =>
+				i.id === issueId ? { ...i, resolvedDate: new Date().toISOString() } : i
+			),
+		});
+		api.resolveHealthIssue(plant.id, issueId).catch(onRefresh);
 	};
 
 	const handleAddProduct = async () => {
 		if (!productName) return;
-		await api.addProductUsage(plant.id, {
-			productName,
-			date: new Date().toISOString(),
-			reason: productReason || undefined,
+		const date = new Date().toISOString();
+		const tempId = `tmp-${Date.now()}`;
+		const reason = productReason || undefined;
+		// Optimistic update
+		onPatch({
+			...plant,
+			productHistory: [
+				...(plant.productHistory ?? []),
+				{ id: tempId, productName, date, reason },
+			],
 		});
 		setProductName('');
 		setProductReason('');
-		onRefresh();
+		api.addProductUsage(plant.id, { productName, date, reason }).catch(onRefresh);
 	};
 
 	const getIssueOptions = () => {
