@@ -49,14 +49,22 @@ const pestOptions: PestType[] = ['aphids', 'spider_mites', 'mealybugs', 'scale',
 const diseaseOptions: DiseaseType[] = ['powdery_mildew', 'root_rot', 'leaf_spot', 'botrytis', 'rust', 'black_spot', 'downy_mildew'];
 const fungusOptions: FungusType[] = ['fusarium', 'pythium', 'phytophthora', 'alternaria', 'cercospora', 'anthracnose'];
 
-function ActionButton({ disabled, className, onClick, label }: { disabled: boolean; className: string; onClick: () => void; label: string }) {
-	if (!disabled) {
-		return <button className={className} onClick={onClick}>{label}</button>;
+function ActionButton({ disabled: initialDisabled, className, onClick, label }: { disabled: boolean; className: string; onClick: () => void; label: string }) {
+	const [forced, setForced] = useState(false);
+	const isDisabled = initialDisabled && !forced;
+
+	const handleClick = () => {
+		setForced(false);
+		onClick();
+	};
+
+	if (!isDisabled) {
+		return <button className={className} onClick={handleClick}>{label}</button>;
 	}
 	return (
-		<div className="action-btn-wrapper disabled">
-			<button className={`${className} disabled`} disabled>{label} ✓</button>
-			<button className="btn-force" onClick={onClick} title="Forza">⟳</button>
+		<div className="action-btn-wrapper">
+			<button className={`${className} is-disabled`} disabled>{label} ✓</button>
+			<button className="btn-force" onClick={() => setForced(true)} title="Forza">⟳</button>
 		</div>
 	);
 }
