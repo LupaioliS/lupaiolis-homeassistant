@@ -39,9 +39,27 @@ function getCurrentSeason(): 'spring' | 'summer' | 'autumn' | 'winter' {
 	return 'winter';
 }
 
+function isDoneToday(dateStr?: string): boolean {
+	if (!dateStr) return false;
+	const today = new Date().toISOString().split('T')[0];
+	return dateStr.split('T')[0] === today;
+}
+
 const pestOptions: PestType[] = ['aphids', 'spider_mites', 'mealybugs', 'scale', 'whiteflies', 'thrips', 'fungus_gnats', 'slugs'];
 const diseaseOptions: DiseaseType[] = ['powdery_mildew', 'root_rot', 'leaf_spot', 'botrytis', 'rust', 'black_spot', 'downy_mildew'];
 const fungusOptions: FungusType[] = ['fusarium', 'pythium', 'phytophthora', 'alternaria', 'cercospora', 'anthracnose'];
+
+function ActionButton({ disabled, className, onClick, label }: { disabled: boolean; className: string; onClick: () => void; label: string }) {
+	if (!disabled) {
+		return <button className={className} onClick={onClick}>{label}</button>;
+	}
+	return (
+		<div className="action-btn-wrapper disabled">
+			<button className={`${className} disabled`} disabled>{label} ✓</button>
+			<button className="btn-force" onClick={onClick} title="Forza">⟳</button>
+		</div>
+	);
+}
 
 export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRefresh }: PlantCardProps) {
 	const [showHealth, setShowHealth] = useState(false);
@@ -158,10 +176,10 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 			)}
 
 			<div className="actions">
-				<button className="btn btn-water" onClick={onWater}>💧 {t('actions.water')}</button>
-				<button className="btn btn-fertilize" onClick={onFertilize}>🧪 {t('actions.fertilize')}</button>
-				<button className="btn btn-secondary" onClick={handleRepot}>🪴 {t('actions.repot')}</button>
-				<button className="btn btn-secondary" onClick={handlePrune}>✂️ {t('actions.prune')}</button>
+				<ActionButton disabled={isDoneToday(plant.lastWatered)} className="btn btn-water" onClick={onWater} label={`💧 ${t('actions.water')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={onFertilize} label={`🧪 ${t('actions.fertilize')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={handleRepot} label={`🪴 ${t('actions.repot')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastPruned)} className="btn btn-secondary" onClick={handlePrune} label={`✂️ ${t('actions.prune')}`} />
 				<button className="btn btn-secondary" onClick={onEdit}>✏️</button>
 				<button className="btn btn-danger" onClick={onDelete}>🗑️</button>
 			</div>
