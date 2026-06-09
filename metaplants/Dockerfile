@@ -24,5 +24,6 @@ ENV MQTT_URL=mqtt://localhost:1883
 ENV MQTT_USER=
 ENV MQTT_PASS=
 ENV HA_DISCOVERY_PREFIX=homeassistant
+ENV METAPLANTS_LANG=it
 
 CMD [ "node", "dist/server/index.js" ]

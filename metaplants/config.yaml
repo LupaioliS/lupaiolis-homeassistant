@@ -15,8 +15,10 @@ options:
   mqtt_user: ""
   mqtt_pass: ""
   ha_discovery_prefix: "homeassistant"
+  lang: "it"
 schema:
   mqtt_url: str
   mqtt_user: str?
   mqtt_pass: password?
   ha_discovery_prefix: str
+  lang: "list(it|en)"

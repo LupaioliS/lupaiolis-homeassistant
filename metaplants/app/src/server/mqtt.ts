@@ -2,6 +2,7 @@ import mqtt from 'mqtt';
 import type { Plant } from '../shared/types';
 import { store } from './store';
 import { broadcast } from './events';
+import { mt } from './i18n';
 
 const MQTT_URL = process.env.MQTT_URL || 'mqtt://localhost:1883';
 const MQTT_USER = process.env.MQTT_USER || '';
@@ -64,7 +65,7 @@ function handleCommand(topic: string, message: Buffer) {
 		return;
 	}
 
-	const notes = message.toString() || `Triggered from Home Assistant`;
+	const notes = message.toString() || mt('actions.triggered_from_ha');
 	const result = store.addAction(plant.id, action, notes);
 	if (result) {
 		const updated = store.getPlant(plant.id);
@@ -112,7 +113,7 @@ function publishDiscovery(plant: Plant) {
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/watering/config`,
 		JSON.stringify({
-			name: `${plant.name} Irrigazione`,
+			name: `${plant.name} ${mt('entities.watering')}`,
 			object_id: `${slug}_watering`,
 			unique_id: `${deviceId}_watering`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/watering`,
@@ -128,7 +129,7 @@ function publishDiscovery(plant: Plant) {
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/fertilizing/config`,
 		JSON.stringify({
-			name: `${plant.name} Fertilizzazione`,
+			name: `${plant.name} ${mt('entities.fertilizing')}`,
 			object_id: `${slug}_fertilizing`,
 			unique_id: `${deviceId}_fertilizing`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/fertilizing`,
@@ -144,7 +145,7 @@ function publishDiscovery(plant: Plant) {
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/repotting/config`,
 		JSON.stringify({
-			name: `${plant.name} Rinvaso`,
+			name: `${plant.name} ${mt('entities.repotting')}`,
 			object_id: `${slug}_repotting`,
 			unique_id: `${deviceId}_repotting`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/repotting`,
@@ -160,7 +161,7 @@ function publishDiscovery(plant: Plant) {
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/pruning/config`,
 		JSON.stringify({
-			name: `${plant.name} Potatura`,
+			name: `${plant.name} ${mt('entities.pruning')}`,
 			object_id: `${slug}_pruning`,
 			unique_id: `${deviceId}_pruning`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/pruning`,
@@ -176,7 +177,7 @@ function publishDiscovery(plant: Plant) {
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/health/config`,
 		JSON.stringify({
-			name: `${plant.name} Salute`,
+			name: `${plant.name} ${mt('entities.health')}`,
 			object_id: `${slug}_health`,
 			unique_id: `${deviceId}_health`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/health`,
@@ -190,10 +191,10 @@ function publishDiscovery(plant: Plant) {
 
 	// Action buttons for HA
 	const actions = [
-		{ action: 'water', name: 'Irriga', icon: 'mdi:watering-can' },
-		{ action: 'fertilize', name: 'Fertilizza', icon: 'mdi:bottle-tonic' },
-		{ action: 'repot', name: 'Rinvasa', icon: 'mdi:flower-pollen' },
-		{ action: 'prune', name: 'Potatura', icon: 'mdi:content-cut' },
+		{ action: 'water', name: mt('entities.water_btn'), icon: 'mdi:watering-can' },
+		{ action: 'fertilize', name: mt('entities.fertilize_btn'), icon: 'mdi:bottle-tonic' },
+		{ action: 'repot', name: mt('entities.repot_btn'), icon: 'mdi:flower-pollen' },
+		{ action: 'prune', name: mt('entities.prune_btn'), icon: 'mdi:content-cut' },
 	];
 
 	for (const { action, name, icon } of actions) {
@@ -226,34 +227,34 @@ function publishState(plant: Plant) {
 	// Watering state
 	const waterDays = daysAgo(plant.lastWatered);
 	const waterState = waterDays === null
-		? 'mai irrigata'
+		? mt('watering.never')
 		: waterDays >= plant.wateringIntervalDays
-			? 'da irrigare'
-			: `ok (${plant.wateringIntervalDays - waterDays}g rimanenti)`;
+			? mt('watering.overdue')
+			: mt('watering.ok', { days: plant.wateringIntervalDays - waterDays });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState, { retain: true });
 
 	// Fertilizing state
 	const fertDays = daysAgo(plant.lastFertilized);
 	const fertState = fertDays === null
-		? 'mai fertilizzata'
+		? mt('fertilizing.never')
 		: fertDays >= plant.fertilizingIntervalDays
-			? 'da fertilizzare'
-			: `ok (${plant.fertilizingIntervalDays - fertDays}g rimanenti)`;
+			? mt('fertilizing.overdue')
+			: mt('fertilizing.ok', { days: plant.fertilizingIntervalDays - fertDays });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/fertilizing`, fertState, { retain: true });
 
 	// Repotting state
 	const repotDays = daysAgo(plant.lastRepotted);
-	const repotState = repotDays === null ? 'mai rinvasata' : `${repotDays}g fa`;
+	const repotState = repotDays === null ? mt('repotting.never') : mt('repotting.daysAgo', { days: repotDays });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/repotting`, repotState, { retain: true });
 
 	// Pruning state
 	const pruneDays = daysAgo(plant.lastPruned);
-	const pruneState = pruneDays === null ? 'mai potata' : `${pruneDays}g fa`;
+	const pruneState = pruneDays === null ? mt('pruning.never') : mt('pruning.daysAgo', { days: pruneDays });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/pruning`, pruneState, { retain: true });
 
 	// Health state
 	const activeIssues = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate);
-	const healthState = activeIssues.length === 0 ? 'sana' : `${activeIssues.length} problema/i`;
+	const healthState = activeIssues.length === 0 ? mt('health.healthy') : mt('health.issues', { count: activeIssues.length });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/health`, healthState, { retain: true });
 
 	// Health attributes (active + history)
