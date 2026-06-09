@@ -39,8 +39,8 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		return { success: true };
 	});
 
-	// Log action (water/fertilize)
-	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize'; notes?: string } }>('/plants/:id/actions', async (request, reply) => {
+	// Log action (water/fertilize/repot/prune)
+	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string } }>('/plants/:id/actions', async (request, reply) => {
 		const { type, notes } = request.body;
 		const action = store.addAction(request.params.id, type, notes);
 		if (!action) return reply.status(404).send({ error: 'Plant not found' });
@@ -52,6 +52,33 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	// Get actions for a plant
 	fastify.get<{ Params: { id: string } }>('/plants/:id/actions', async (request) => {
 		return store.getActions(request.params.id);
+	});
+
+	// Add health issue
+	fastify.post<{ Params: { id: string }; Body: { type: 'pest' | 'disease' | 'fungus'; name: string; detectedDate: string; notes?: string } }>('/plants/:id/health', async (request, reply) => {
+		const { type, name, detectedDate, notes } = request.body;
+		const issue = store.addHealthIssue(request.params.id, { type, name: name as any, detectedDate, notes });
+		if (!issue) return reply.status(404).send({ error: 'Plant not found' });
+		const plant = store.getPlant(request.params.id);
+		if (plant) publishPlant(plant);
+		return issue;
+	});
+
+	// Resolve health issue
+	fastify.put<{ Params: { id: string; issueId: string }; Body: { treatment?: string } }>('/plants/:id/health/:issueId/resolve', async (request, reply) => {
+		const issue = store.resolveHealthIssue(request.params.id, request.params.issueId, request.body.treatment);
+		if (!issue) return reply.status(404).send({ error: 'Issue not found' });
+		const plant = store.getPlant(request.params.id);
+		if (plant) publishPlant(plant);
+		return issue;
+	});
+
+	// Add product usage
+	fastify.post<{ Params: { id: string }; Body: { productName: string; date: string; reason?: string; notes?: string } }>('/plants/:id/products', async (request, reply) => {
+		const { productName, date, reason, notes } = request.body;
+		const usage = store.addProductUsage(request.params.id, { productName, date, reason, notes });
+		if (!usage) return reply.status(404).send({ error: 'Plant not found' });
+		return usage;
 	});
 
 	// Force republish all plants to MQTT

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import type { Plant, PlantAction } from '../shared/types';
+import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/types';
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../data');
 const PLANTS_FILE = path.join(DATA_DIR, 'plants.json');
@@ -74,7 +74,7 @@ export const store = {
 		return removed;
 	},
 
-	addAction: (plantId: string, type: 'water' | 'fertilize', notes?: string): PlantAction | undefined => {
+	addAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', notes?: string): PlantAction | undefined => {
 		const plants = readPlants();
 		const plantIndex = plants.findIndex((p) => p.id === plantId);
 		if (plantIndex === -1) return undefined;
@@ -87,10 +87,19 @@ export const store = {
 			notes,
 		};
 
-		if (type === 'water') {
-			plants[plantIndex].lastWatered = action.date;
-		} else {
-			plants[plantIndex].lastFertilized = action.date;
+		switch (type) {
+			case 'water':
+				plants[plantIndex].lastWatered = action.date;
+				break;
+			case 'fertilize':
+				plants[plantIndex].lastFertilized = action.date;
+				break;
+			case 'repot':
+				plants[plantIndex].lastRepotted = action.date;
+				break;
+			case 'prune':
+				plants[plantIndex].lastPruned = action.date;
+				break;
 		}
 		writePlants(plants);
 
@@ -99,6 +108,45 @@ export const store = {
 		writeActions(actions);
 
 		return action;
+	},
+
+	addHealthIssue: (plantId: string, issue: Omit<HealthIssue, 'id'>): HealthIssue | undefined => {
+		const plants = readPlants();
+		const plantIndex = plants.findIndex((p) => p.id === plantId);
+		if (plantIndex === -1) return undefined;
+
+		const healthIssue: HealthIssue = { ...issue, id: randomUUID() };
+		if (!plants[plantIndex].healthIssues) plants[plantIndex].healthIssues = [];
+		plants[plantIndex].healthIssues!.push(healthIssue);
+		writePlants(plants);
+		return healthIssue;
+	},
+
+	resolveHealthIssue: (plantId: string, issueId: string, treatment?: string): HealthIssue | undefined => {
+		const plants = readPlants();
+		const plantIndex = plants.findIndex((p) => p.id === plantId);
+		if (plantIndex === -1) return undefined;
+
+		const issues = plants[plantIndex].healthIssues ?? [];
+		const issue = issues.find((i) => i.id === issueId);
+		if (!issue) return undefined;
+
+		issue.resolvedDate = new Date().toISOString();
+		if (treatment) issue.treatment = treatment;
+		writePlants(plants);
+		return issue;
+	},
+
+	addProductUsage: (plantId: string, product: Omit<ProductUsage, 'id'>): ProductUsage | undefined => {
+		const plants = readPlants();
+		const plantIndex = plants.findIndex((p) => p.id === plantId);
+		if (plantIndex === -1) return undefined;
+
+		const usage: ProductUsage = { ...product, id: randomUUID() };
+		if (!plants[plantIndex].productHistory) plants[plantIndex].productHistory = [];
+		plants[plantIndex].productHistory!.push(usage);
+		writePlants(plants);
+		return usage;
 	},
 
 	getActions: (plantId: string): PlantAction[] => {

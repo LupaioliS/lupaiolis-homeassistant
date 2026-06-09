@@ -244,3 +244,152 @@ header h1 {
   margin-top: 8px;
   font-size: 1.1rem;
 }
+
+/* Locale switcher */
+.locale-switcher {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+}
+
+.btn-link {
+  background: none;
+  color: var(--green-600);
+  text-decoration: underline;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
+.btn-link:hover {
+  color: var(--green-800);
+}
+
+/* Plant card extras */
+.info-row {
+  font-size: 0.82rem;
+  color: #555;
+  margin-bottom: 6px;
+}
+
+.info-dates {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  color: #777;
+}
+
+.seasonal-info {
+  font-size: 0.78rem;
+  color: var(--green-700);
+  margin-bottom: 8px;
+}
+
+.health-alert {
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  margin-bottom: 10px;
+}
+
+.card-expandable {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  border-top: 1px solid var(--green-100);
+  padding-top: 8px;
+}
+
+/* Health section */
+.health-section, .products-section {
+  margin-top: 12px;
+  padding: 10px;
+  background: var(--green-50);
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
+.health-form, .product-form {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.health-form select, .product-form input {
+  padding: 6px 8px;
+  border: 1px solid var(--green-200);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  flex: 1;
+  min-width: 80px;
+}
+
+.health-list, .product-list {
+  margin-top: 8px;
+}
+
+.health-item, .product-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--green-100);
+  flex-wrap: wrap;
+}
+
+.health-item.resolved {
+  opacity: 0.7;
+  text-decoration: line-through;
+}
+
+.health-item.active {
+  color: #d97706;
+}
+
+.product-item strong {
+  color: var(--green-800);
+}
+
+.product-item small {
+  color: #888;
+}
+
+/* Form fieldsets */
+.form-fieldset {
+  border: 1px solid var(--green-200);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+
+.form-fieldset legend {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--green-700);
+  padding: 0 6px;
+}
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.schedule-grid .form-group {
+  margin-bottom: 0;
+}
+
+.schedule-grid input {
+  padding: 6px 8px;
+  font-size: 0.82rem;
+}

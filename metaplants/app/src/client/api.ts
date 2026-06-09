@@ -1,4 +1,4 @@
-import type { Plant, PlantAction } from '../shared/types';
+import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/types';
 
 const BASE = '/api';
 
@@ -20,12 +20,27 @@ export const api = {
 		request<Plant>(`/plants/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
 	deletePlant: (id: string) =>
 		request<{ success: boolean }>(`/plants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-	logAction: (plantId: string, type: 'water' | 'fertilize', notes?: string) =>
+	logAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', notes?: string) =>
 		request<PlantAction>(`/plants/${encodeURIComponent(plantId)}/actions`, {
 			method: 'POST',
 			body: JSON.stringify({ type, notes }),
 		}),
 	getActions: (plantId: string) =>
 		request<PlantAction[]>(`/plants/${encodeURIComponent(plantId)}/actions`),
+	addHealthIssue: (plantId: string, data: { type: string; name: string; detectedDate: string; notes?: string }) =>
+		request<HealthIssue>(`/plants/${encodeURIComponent(plantId)}/health`, {
+			method: 'POST',
+			body: JSON.stringify(data),
+		}),
+	resolveHealthIssue: (plantId: string, issueId: string, treatment?: string) =>
+		request<HealthIssue>(`/plants/${encodeURIComponent(plantId)}/health/${encodeURIComponent(issueId)}/resolve`, {
+			method: 'PUT',
+			body: JSON.stringify({ treatment }),
+		}),
+	addProductUsage: (plantId: string, data: { productName: string; date: string; reason?: string; notes?: string }) =>
+		request<ProductUsage>(`/plants/${encodeURIComponent(plantId)}/products`, {
+			method: 'POST',
+			body: JSON.stringify(data),
+		}),
 	syncMqtt: () => request<{ success: boolean }>('/mqtt/sync', { method: 'POST' }),
 };

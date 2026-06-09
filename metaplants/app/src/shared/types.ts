@@ -1,3 +1,36 @@
+export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
+
+export type PestType = 'aphids' | 'spider_mites' | 'mealybugs' | 'scale' | 'whiteflies' | 'thrips' | 'fungus_gnats' | 'slugs';
+export type DiseaseType = 'powdery_mildew' | 'root_rot' | 'leaf_spot' | 'botrytis' | 'rust' | 'black_spot' | 'downy_mildew';
+export type FungusType = 'fusarium' | 'pythium' | 'phytophthora' | 'alternaria' | 'cercospora' | 'anthracnose';
+
+export type HealthIssueType = 'pest' | 'disease' | 'fungus';
+
+export interface HealthIssue {
+	id: string;
+	type: HealthIssueType;
+	name: PestType | DiseaseType | FungusType;
+	detectedDate: string;
+	resolvedDate?: string;
+	treatment?: string;
+	notes?: string;
+}
+
+export interface ProductUsage {
+	id: string;
+	productName: string;
+	date: string;
+	reason?: string;
+	notes?: string;
+}
+
+export interface SeasonalSchedule {
+	spring: number;
+	summer: number;
+	autumn: number;
+	winter: number;
+}
+
 export interface Plant {
 	id: string;
 	name: string;
@@ -8,6 +41,14 @@ export interface Plant {
 	fertilizingIntervalDays: number;
 	lastWatered?: string;
 	lastFertilized?: string;
+	lastRepotted?: string;
+	lastPruned?: string;
+	purchaseDate?: string;
+	recommendedFertilizer?: string;
+	wateringSchedule?: SeasonalSchedule;
+	fertilizingSchedule?: SeasonalSchedule;
+	healthIssues?: HealthIssue[];
+	productHistory?: ProductUsage[];
 	notes?: string;
 	createdAt: string;
 }
@@ -15,7 +56,7 @@ export interface Plant {
 export interface PlantAction {
 	id: string;
 	plantId: string;
-	type: 'water' | 'fertilize';
+	type: 'water' | 'fertilize' | 'repot' | 'prune';
 	date: string;
 	notes?: string;
 }
