@@ -453,6 +453,32 @@ header h1 {
   font-size: 0.82rem;
 }
 
+.suggestion-btn {
+  margin-top: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 0.78rem;
+}
+
+/* Season banner */
+.season-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--green-100, #dcfce7);
+  border: 1px solid var(--green-200);
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin-bottom: 18px;
+  color: var(--green-700);
+  font-size: 0.95rem;
+}
+
+.season-banner-emoji {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
 /* Photos */
 .plant-photo {
   width: 100%;

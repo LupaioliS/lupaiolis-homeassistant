@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Plant, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
+import { computeSeasonalSuggestions } from '../season';
 import { withBase } from '../basePath';
 
 interface PlantFormProps {
@@ -27,6 +28,18 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 	const [notes, setNotes] = useState(plant?.notes ?? '');
 	const [imageUrl, setImageUrl] = useState(plant?.imageUrl ?? '');
 	const [uploading, setUploading] = useState(false);
+	const [wateringSuggestions, setWateringSuggestions] = useState<Partial<SeasonalSchedule>>({});
+	const [fertilizingSuggestions, setFertilizingSuggestions] = useState<Partial<SeasonalSchedule>>({});
+
+	useEffect(() => {
+		if (!plant) return;
+		api.getActions(plant.id)
+			.then((actions) => {
+				setWateringSuggestions(computeSeasonalSuggestions(actions, 'water'));
+				setFertilizingSuggestions(computeSeasonalSuggestions(actions, 'fertilize'));
+			})
+			.catch(() => { /* no suggestions without history */ });
+	}, [plant]);
 
 	const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
 		const file = e.target.files?.[0];
@@ -124,6 +137,11 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 								<div key={s} className="form-group">
 									<label>{t(`seasons.${s}`)}</label>
 									<input type="number" min={1} value={wateringSchedule[s]} onChange={(e) => setWateringSchedule({ ...wateringSchedule, [s]: Number(e.target.value) })} />
+									{wateringSuggestions[s] != null && wateringSuggestions[s] !== wateringSchedule[s] && (
+										<button type="button" className="btn btn-secondary btn-sm suggestion-btn" title={t('schedule.suggested')} onClick={() => setWateringSchedule({ ...wateringSchedule, [s]: wateringSuggestions[s]! })}>
+											💡 {wateringSuggestions[s]}
+										</button>
+									)}
 								</div>
 							))}
 						</div>
@@ -136,6 +154,11 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 								<div key={s} className="form-group">
 									<label>{t(`seasons.${s}`)}</label>
 									<input type="number" min={1} value={fertilizingSchedule[s]} onChange={(e) => setFertilizingSchedule({ ...fertilizingSchedule, [s]: Number(e.target.value) })} />
+									{fertilizingSuggestions[s] != null && fertilizingSuggestions[s] !== fertilizingSchedule[s] && (
+										<button type="button" className="btn btn-secondary btn-sm suggestion-btn" title={t('schedule.suggested')} onClick={() => setFertilizingSchedule({ ...fertilizingSchedule, [s]: fertilizingSuggestions[s]! })}>
+											💡 {fertilizingSuggestions[s]}
+										</button>
+									)}
 								</div>
 							))}
 						</div>

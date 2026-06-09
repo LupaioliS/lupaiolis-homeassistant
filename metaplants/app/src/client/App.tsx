@@ -4,6 +4,7 @@ import { api } from './api';
 import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { t, initLocale } from './i18n';
+import { getCurrentSeason, seasonEmoji } from './season';
 import { BASE_PATH } from './basePath';
 
 export function App() {
@@ -91,6 +92,8 @@ export function App() {
 		// UI updates via SSE broadcast — no extra fetch needed
 	};
 
+	const currentSeason = getCurrentSeason();
+
 	return (
 		<div className="app">
 			<header>
@@ -102,6 +105,11 @@ export function App() {
 				<button className="btn btn-primary" onClick={() => setShowForm(true)}>
 					{t('app.addPlant')}
 				</button>
+			</div>
+
+			<div className="season-banner">
+				<span className="season-banner-emoji">{seasonEmoji[currentSeason]}</span>
+				<span>{t('app.currentSeason')}: <strong>{t(`seasons.${currentSeason}`)}</strong></span>
 			</div>
 
 			{plants.length === 0 ? (

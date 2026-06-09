@@ -4,6 +4,7 @@ export const it = {
 		subtitle: 'Gestisci le tue piante',
 		addPlant: '+ Aggiungi Pianta',
 		empty: 'Nessuna pianta aggiunta',
+		currentSeason: 'Stagione attuale',
 	},
 	plant: {
 		name: 'Nome',
@@ -51,6 +52,7 @@ export const it = {
 		title: 'Frequenza stagionale',
 		watering: 'Irrigazione (giorni)',
 		fertilizing: 'Concimazione (giorni)',
+		suggested: 'Suggerito dallo storico — clicca per applicare',
 	},
 	health: {
 		title: 'Problemi di salute',

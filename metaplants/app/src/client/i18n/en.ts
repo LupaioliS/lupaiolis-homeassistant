@@ -4,6 +4,7 @@ export const en = {
 		subtitle: 'Manage your plants',
 		addPlant: '+ Add Plant',
 		empty: 'No plants added yet',
+		currentSeason: 'Current season',
 	},
 	plant: {
 		name: 'Name',
@@ -51,6 +52,7 @@ export const en = {
 		title: 'Seasonal schedule',
 		watering: 'Watering (days)',
 		fertilizing: 'Fertilizing (days)',
+		suggested: 'Suggested from history — click to apply',
 	},
 	health: {
 		title: 'Health issues',
