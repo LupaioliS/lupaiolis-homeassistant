@@ -1,5 +1,6 @@
 import mqtt from 'mqtt';
 import type { Plant } from '../shared/types';
+import { store } from './store';
 
 const MQTT_URL = process.env.MQTT_URL || 'mqtt://localhost:1883';
 const MQTT_USER = process.env.MQTT_USER || '';
@@ -26,14 +27,48 @@ export function connectMqtt(): Promise<void> {
 		client.on('connect', () => {
 			console.log('[MQTT] Connected to', MQTT_URL);
 			client!.publish(TOPIC_PREFIX + '/status', 'online', { retain: true });
+			// Subscribe to command topics
+			client!.subscribe(TOPIC_PREFIX + '/+/+/set', (err) => {
+				if (err) console.error('[MQTT] Subscribe error:', err.message);
+				else console.log('[MQTT] Subscribed to command topics');
+			});
 			resolve();
 		});
+
+		client.on('message', handleCommand);
 
 		client.on('error', (err) => {
 			console.error('[MQTT] Connection error:', err.message);
 			reject(err);
 		});
 	});
+}
+
+function handleCommand(topic: string, message: Buffer) {
+	// Topic format: metaplants/<slug>/<action>/set
+	const parts = topic.split('/');
+	if (parts.length !== 4 || parts[0] !== TOPIC_PREFIX || parts[3] !== 'set') return;
+
+	const slug = parts[1];
+	const action = parts[2] as 'water' | 'fertilize' | 'repot' | 'prune';
+	const validActions = ['water', 'fertilize', 'repot', 'prune'];
+	if (!validActions.includes(action)) return;
+
+	// Find plant by slug
+	const plants = store.getPlants();
+	const plant = plants.find((p) => slugify(p.name) === slug);
+	if (!plant) {
+		console.warn(`[MQTT] Plant not found for slug: ${slug}`);
+		return;
+	}
+
+	const notes = message.toString() || `Triggered from Home Assistant`;
+	const result = store.addAction(plant.id, action, notes);
+	if (result) {
+		const updated = store.getPlant(plant.id);
+		if (updated) publishPlant(updated);
+		console.log(`[MQTT] Action '${action}' executed for plant '${plant.name}'`);
+	}
 }
 
 export function disconnectMqtt(): Promise<void> {
@@ -63,38 +98,110 @@ function publishDiscovery(plant: Plant) {
 		suggested_area: plant.location,
 	};
 
+	const availability = { topic: TOPIC_PREFIX + '/status' };
+
 	// Watering sensor
-	const waterConfig = {
-		name: plant.name + ' Irrigazione',
-		unique_id: deviceId + '_watering',
-		state_topic: TOPIC_PREFIX + '/plant/' + slug + '/watering',
-		json_attributes_topic: TOPIC_PREFIX + '/plant/' + slug + '/attributes',
-		device,
-		icon: 'mdi:watering-can',
-		availability_topic: TOPIC_PREFIX + '/status',
-	};
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/watering/config`,
+		JSON.stringify({
+			name: `${plant.name} Irrigazione`,
+			unique_id: `${deviceId}_watering`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/watering`,
+			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
+			device,
+			icon: 'mdi:watering-can',
+			availability,
+		}),
+		{ retain: true }
+	);
 
 	// Fertilizing sensor
-	const fertConfig = {
-		name: plant.name + ' Fertilizzazione',
-		unique_id: deviceId + '_fertilizing',
-		state_topic: TOPIC_PREFIX + '/plant/' + slug + '/fertilizing',
-		json_attributes_topic: TOPIC_PREFIX + '/plant/' + slug + '/attributes',
-		device,
-		icon: 'mdi:bottle-tonic',
-		availability_topic: TOPIC_PREFIX + '/status',
-	};
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/fertilizing/config`,
+		JSON.stringify({
+			name: `${plant.name} Fertilizzazione`,
+			unique_id: `${deviceId}_fertilizing`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/fertilizing`,
+			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
+			device,
+			icon: 'mdi:bottle-tonic',
+			availability,
+		}),
+		{ retain: true }
+	);
 
+	// Repotting sensor
 	client.publish(
-		DISCOVERY_PREFIX + '/sensor/' + deviceId + '/watering/config',
-		JSON.stringify(waterConfig),
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/repotting/config`,
+		JSON.stringify({
+			name: `${plant.name} Rinvaso`,
+			unique_id: `${deviceId}_repotting`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/repotting`,
+			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
+			device,
+			icon: 'mdi:flower-pollen',
+			availability,
+		}),
 		{ retain: true }
 	);
+
+	// Pruning sensor
 	client.publish(
-		DISCOVERY_PREFIX + '/sensor/' + deviceId + '/fertilizing/config',
-		JSON.stringify(fertConfig),
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/pruning/config`,
+		JSON.stringify({
+			name: `${plant.name} Potatura`,
+			unique_id: `${deviceId}_pruning`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/pruning`,
+			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
+			device,
+			icon: 'mdi:content-cut',
+			availability,
+		}),
 		{ retain: true }
 	);
+
+	// Health sensor
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/health/config`,
+		JSON.stringify({
+			name: `${plant.name} Salute`,
+			unique_id: `${deviceId}_health`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/health`,
+			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/health_attributes`,
+			device,
+			icon: 'mdi:heart-pulse',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Action buttons for HA
+	const actions = [
+		{ action: 'water', name: 'Irriga', icon: 'mdi:watering-can' },
+		{ action: 'fertilize', name: 'Fertilizza', icon: 'mdi:bottle-tonic' },
+		{ action: 'repot', name: 'Rinvasa', icon: 'mdi:flower-pollen' },
+		{ action: 'prune', name: 'Potatura', icon: 'mdi:content-cut' },
+	];
+
+	for (const { action, name, icon } of actions) {
+		client.publish(
+			`${DISCOVERY_PREFIX}/button/${deviceId}/${action}/config`,
+			JSON.stringify({
+				name: `${plant.name} ${name}`,
+				unique_id: `${deviceId}_btn_${action}`,
+				command_topic: `${TOPIC_PREFIX}/${slug}/${action}/set`,
+				device,
+				icon,
+				availability,
+			}),
+			{ retain: true }
+		);
+	}
+}
+
+function daysAgo(dateStr?: string): number | null {
+	if (!dateStr) return null;
+	return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
 }
 
 function publishState(plant: Plant) {
@@ -102,38 +209,68 @@ function publishState(plant: Plant) {
 
 	const slug = slugify(plant.name);
 
-	const waterDaysAgo = plant.lastWatered
-		? Math.floor((Date.now() - new Date(plant.lastWatered).getTime()) / 86400000)
-		: null;
-	const fertDaysAgo = plant.lastFertilized
-		? Math.floor((Date.now() - new Date(plant.lastFertilized).getTime()) / 86400000)
-		: null;
-
-	const waterState = waterDaysAgo === null
+	// Watering state
+	const waterDays = daysAgo(plant.lastWatered);
+	const waterState = waterDays === null
 		? 'mai irrigata'
-		: waterDaysAgo >= plant.wateringIntervalDays
+		: waterDays >= plant.wateringIntervalDays
 			? 'da irrigare'
-			: 'ok (' + (plant.wateringIntervalDays - waterDaysAgo) + 'g rimanenti)';
+			: `ok (${plant.wateringIntervalDays - waterDays}g rimanenti)`;
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState, { retain: true });
 
-	const fertState = fertDaysAgo === null
+	// Fertilizing state
+	const fertDays = daysAgo(plant.lastFertilized);
+	const fertState = fertDays === null
 		? 'mai fertilizzata'
-		: fertDaysAgo >= plant.fertilizingIntervalDays
+		: fertDays >= plant.fertilizingIntervalDays
 			? 'da fertilizzare'
-			: 'ok (' + (plant.fertilizingIntervalDays - fertDaysAgo) + 'g rimanenti)';
+			: `ok (${plant.fertilizingIntervalDays - fertDays}g rimanenti)`;
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/fertilizing`, fertState, { retain: true });
 
-	client.publish(TOPIC_PREFIX + '/plant/' + slug + '/watering', waterState, { retain: true });
-	client.publish(TOPIC_PREFIX + '/plant/' + slug + '/fertilizing', fertState, { retain: true });
+	// Repotting state
+	const repotDays = daysAgo(plant.lastRepotted);
+	const repotState = repotDays === null ? 'mai rinvasata' : `${repotDays}g fa`;
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/repotting`, repotState, { retain: true });
 
+	// Pruning state
+	const pruneDays = daysAgo(plant.lastPruned);
+	const pruneState = pruneDays === null ? 'mai potata' : `${pruneDays}g fa`;
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/pruning`, pruneState, { retain: true });
+
+	// Health state
+	const activeIssues = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate);
+	const healthState = activeIssues.length === 0 ? 'sana' : `${activeIssues.length} problema/i`;
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/health`, healthState, { retain: true });
+
+	// Health attributes (active + history)
+	const healthAttrs = {
+		active_issues: activeIssues.map((i) => ({ type: i.type, name: i.name, detected: i.detectedDate })),
+		resolved_issues: (plant.healthIssues ?? []).filter((i) => i.resolvedDate).map((i) => ({
+			type: i.type, name: i.name, detected: i.detectedDate, resolved: i.resolvedDate, treatment: i.treatment,
+		})),
+	};
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/health_attributes`, JSON.stringify(healthAttrs), { retain: true });
+
+	// Full attributes
 	const attributes = {
 		species: plant.species,
 		location: plant.location,
+		purchase_date: plant.purchaseDate || null,
 		watering_interval_days: plant.wateringIntervalDays,
 		fertilizing_interval_days: plant.fertilizingIntervalDays,
 		last_watered: plant.lastWatered || null,
 		last_fertilized: plant.lastFertilized || null,
+		last_repotted: plant.lastRepotted || null,
+		last_pruned: plant.lastPruned || null,
+		recommended_fertilizer: plant.recommendedFertilizer || null,
+		watering_schedule: plant.wateringSchedule || null,
+		fertilizing_schedule: plant.fertilizingSchedule || null,
+		product_history: (plant.productHistory ?? []).map((p) => ({
+			product: p.productName, date: p.date, reason: p.reason,
+		})),
 		notes: plant.notes || null,
 	};
-	client.publish(TOPIC_PREFIX + '/plant/' + slug + '/attributes', JSON.stringify(attributes), { retain: true });
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/attributes`, JSON.stringify(attributes), { retain: true });
 }
 
 export function publishPlant(plant: Plant) {
@@ -154,11 +291,18 @@ export function removePlant(plant: Plant) {
 	const slug = slugify(plant.name);
 
 	// Remove discovery configs
-	client.publish(DISCOVERY_PREFIX + '/sensor/' + deviceId + '/watering/config', '', { retain: true });
-	client.publish(DISCOVERY_PREFIX + '/sensor/' + deviceId + '/fertilizing/config', '', { retain: true });
+	const sensorTypes = ['watering', 'fertilizing', 'repotting', 'pruning', 'health'];
+	for (const type of sensorTypes) {
+		client.publish(`${DISCOVERY_PREFIX}/sensor/${deviceId}/${type}/config`, '', { retain: true });
+	}
+	const actionTypes = ['water', 'fertilize', 'repot', 'prune'];
+	for (const action of actionTypes) {
+		client.publish(`${DISCOVERY_PREFIX}/button/${deviceId}/${action}/config`, '', { retain: true });
+	}
 
-	// Remove state
-	client.publish(TOPIC_PREFIX + '/plant/' + slug + '/watering', '', { retain: true });
-	client.publish(TOPIC_PREFIX + '/plant/' + slug + '/fertilizing', '', { retain: true });
-	client.publish(TOPIC_PREFIX + '/plant/' + slug + '/attributes', '', { retain: true });
+	// Remove state topics
+	const stateTopics = ['watering', 'fertilizing', 'repotting', 'pruning', 'health', 'health_attributes', 'attributes'];
+	for (const t of stateTopics) {
+		client.publish(`${TOPIC_PREFIX}/plant/${slug}/${t}`, '', { retain: true });
+	}
 }
