@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/types';
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../data');
+const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '../../data'));
 const PLANTS_FILE = path.join(DATA_DIR, 'plants.json');
 const ACTIONS_FILE = path.join(DATA_DIR, 'actions.json');
 export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
