@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Monstera",
+    "species": "Monstera deliciosa",
+    "location": "Soggiorno",
+    "wateringIntervalDays": 3,
+    "fertilizingIntervalDays": 14,
+    "notes": "",
+    "id": "74653d06-db35-460a-9767-45102e078d50",
+    "createdAt": "2026-06-09T11:17:43.601Z",
+    "lastWatered": "2026-06-09T11:32:54.216Z",
+    "lastFertilized": "2026-06-09T11:18:44.899Z"
+  }
+]

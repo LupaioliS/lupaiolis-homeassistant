@@ -1,17 +1,28 @@
-FROM node:22-alpine
+FROM node:22-alpine AS builder
 
-# Imposta la cartella di lavoro
 WORKDIR /usr/src/app
 
-# Copia i file del package e installa
 COPY app/package*.json ./
 RUN npm install
 
-# Copia il resto del codice
 COPY app/ .
+RUN npm run build
 
-# Espone la porta (deve coincidere con ingress_port)
+# Production stage
+FROM node:22-alpine
+
+WORKDIR /usr/src/app
+
+COPY --from=builder /usr/src/app/dist ./dist
+COPY --from=builder /usr/src/app/node_modules ./node_modules
+COPY --from=builder /usr/src/app/package.json ./
+
 EXPOSE 3000
 
-# Avvia l'app
-CMD [ "node", "server.js" ]
+ENV DATA_DIR=/data
+ENV MQTT_URL=mqtt://localhost:1883
+ENV MQTT_USER=
+ENV MQTT_PASS=
+ENV HA_DISCOVERY_PREFIX=homeassistant
+
+CMD [ "node", "dist/server/index.js" ]
