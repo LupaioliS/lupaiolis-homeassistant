@@ -1,11 +1,12 @@
 import { mqtt_it } from './mqtt_it';
 import { mqtt_en } from './mqtt_en';
+import { config } from '../config';
 
 export type MqttLocale = 'it' | 'en';
 
 const translations: Record<MqttLocale, typeof mqtt_it> = { it: mqtt_it, en: mqtt_en };
 
-const locale: MqttLocale = (process.env.METAPLANTS_LANG || process.env.LANG?.split('.')[0]?.split('_')[0] || 'it') as MqttLocale;
+const locale: MqttLocale = (config.lang || 'it') as MqttLocale;
 
 const currentTranslation = translations[locale] || translations.it;
 

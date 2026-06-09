@@ -8,6 +8,7 @@ import { plantRoutes } from './routes/plants';
 import { connectMqtt, disconnectMqtt, publishAllPlants } from './mqtt';
 import { store, UPLOADS_DIR, ensureUploadsDir } from './store';
 import { addClient } from './events';
+import { config } from './config';
 
 const fastify = Fastify({ logger: true });
 
@@ -31,7 +32,7 @@ async function start() {
 	});
 
 	// Locale endpoint for client
-	const serverLocale = process.env.METAPLANTS_LANG || process.env.LANG?.split('.')[0]?.split('_')[0] || 'it';
+	const serverLocale = config.lang;
 	fastify.get('/api/locale', async () => {
 		return { locale: serverLocale };
 	});

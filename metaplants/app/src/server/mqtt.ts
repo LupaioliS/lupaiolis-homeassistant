@@ -3,11 +3,12 @@ import type { Plant } from '../shared/types';
 import { store } from './store';
 import { broadcast } from './events';
 import { mt } from './i18n';
+import { config } from './config';
 
-const MQTT_URL = process.env.MQTT_URL || 'mqtt://localhost:1883';
-const MQTT_USER = process.env.MQTT_USER || '';
-const MQTT_PASS = process.env.MQTT_PASS || '';
-const DISCOVERY_PREFIX = process.env.HA_DISCOVERY_PREFIX || 'homeassistant';
+const MQTT_URL = config.mqttUrl;
+const MQTT_USER = config.mqttUser;
+const MQTT_PASS = config.mqttPass;
+const DISCOVERY_PREFIX = config.discoveryPrefix;
 const TOPIC_PREFIX = 'metaplants';
 
 let client: mqtt.MqttClient | null = null;
@@ -15,10 +16,20 @@ const discoveredPlants = new Set<string>();
 
 export function connectMqtt(): Promise<void> {
 	return new Promise((resolve, reject) => {
+		const safeUser = MQTT_USER ? MQTT_USER : '(none)';
+		console.log('[MQTT] Connecting...');
+		console.log('[MQTT]   URL            :', MQTT_URL);
+		console.log('[MQTT]   User           :', safeUser);
+		console.log('[MQTT]   Password set   :', MQTT_PASS ? 'yes' : 'no');
+		console.log('[MQTT]   Discovery prefix:', DISCOVERY_PREFIX);
+
+		let settled = false;
+
 		client = mqtt.connect(MQTT_URL, {
 			username: MQTT_USER || undefined,
 			password: MQTT_PASS || undefined,
 			clientId: 'metaplants_' + Math.random().toString(16).slice(2, 8),
+			reconnectPeriod: 5000,
 			will: {
 				topic: TOPIC_PREFIX + '/status',
 				payload: Buffer.from('offline'),
@@ -35,14 +46,35 @@ export function connectMqtt(): Promise<void> {
 				if (err) console.error('[MQTT] Subscribe error:', err.message);
 				else console.log('[MQTT] Subscribed to command topics');
 			});
-			resolve();
+			if (!settled) {
+				settled = true;
+				resolve();
+			}
 		});
 
 		client.on('message', handleCommand);
 
+		client.on('reconnect', () => {
+			console.warn('[MQTT] Reconnecting to', MQTT_URL, '...');
+		});
+
+		client.on('close', () => {
+			console.warn('[MQTT] Connection closed');
+		});
+
 		client.on('error', (err) => {
-			console.error('[MQTT] Connection error:', err.message);
-			reject(err);
+			const e = err as NodeJS.ErrnoException & { address?: string; port?: number };
+			console.error('[MQTT] Connection error while connecting to', MQTT_URL);
+			console.error('[MQTT]   message:', e.message || '(empty)');
+			if (e.code) console.error('[MQTT]   code   :', e.code);
+			if (e.errno) console.error('[MQTT]   errno  :', e.errno);
+			if (e.syscall) console.error('[MQTT]   syscall:', e.syscall);
+			if (e.address) console.error('[MQTT]   address:', e.address);
+			if (e.port) console.error('[MQTT]   port   :', e.port);
+			if (!settled) {
+				settled = true;
+				reject(err);
+			}
 		});
 	});
 }
