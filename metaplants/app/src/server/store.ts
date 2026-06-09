@@ -13,27 +13,43 @@ function ensureDataDir() {
 	}
 }
 
+// In-memory caches to avoid disk reads on every request
+let plantsCache: Plant[] | null = null;
+let actionsCache: PlantAction[] | null = null;
+
 function readPlants(): Plant[] {
+	if (plantsCache) return plantsCache;
 	ensureDataDir();
-	if (!fs.existsSync(PLANTS_FILE)) return [];
+	if (!fs.existsSync(PLANTS_FILE)) {
+		plantsCache = [];
+		return plantsCache;
+	}
 	const data = fs.readFileSync(PLANTS_FILE, 'utf-8');
-	return JSON.parse(data);
+	plantsCache = JSON.parse(data);
+	return plantsCache!;
 }
 
 function writePlants(plants: Plant[]) {
 	ensureDataDir();
+	plantsCache = plants;
 	fs.writeFileSync(PLANTS_FILE, JSON.stringify(plants, null, '	'));
 }
 
 function readActions(): PlantAction[] {
+	if (actionsCache) return actionsCache;
 	ensureDataDir();
-	if (!fs.existsSync(ACTIONS_FILE)) return [];
+	if (!fs.existsSync(ACTIONS_FILE)) {
+		actionsCache = [];
+		return actionsCache;
+	}
 	const data = fs.readFileSync(ACTIONS_FILE, 'utf-8');
-	return JSON.parse(data);
+	actionsCache = JSON.parse(data);
+	return actionsCache!;
 }
 
 function writeActions(actions: PlantAction[]) {
 	ensureDataDir();
+	actionsCache = actions;
 	fs.writeFileSync(ACTIONS_FILE, JSON.stringify(actions, null, '	'));
 }
 

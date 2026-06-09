@@ -102,12 +102,12 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 
 	const handleRepot = async () => {
 		await api.logAction(plant.id, 'repot');
-		onRefresh();
+		// UI updates via SSE broadcast
 	};
 
 	const handlePrune = async () => {
 		await api.logAction(plant.id, 'prune');
-		onRefresh();
+		// UI updates via SSE broadcast
 	};
 
 	const handleAddIssue = async () => {

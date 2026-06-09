@@ -50,18 +50,18 @@ export function App() {
 
 	const handleWater = async (id: string) => {
 		await api.logAction(id, 'water');
-		loadPlants();
+		// UI updates via SSE broadcast — no extra fetch needed
 	};
 
 	const handleFertilize = async (id: string) => {
 		await api.logAction(id, 'fertilize');
-		loadPlants();
+		// UI updates via SSE broadcast — no extra fetch needed
 	};
 
 	const handleDelete = async (id: string) => {
 		if (!confirm(t('plant.confirmDelete'))) return;
 		await api.deletePlant(id);
-		loadPlants();
+		// UI updates via SSE broadcast — no extra fetch needed
 	};
 
 	const handleEdit = (plant: Plant) => {
@@ -81,7 +81,7 @@ export function App() {
 			await api.createPlant(data);
 		}
 		handleFormClose();
-		loadPlants();
+		// UI updates via SSE broadcast — no extra fetch needed
 	};
 
 	return (
