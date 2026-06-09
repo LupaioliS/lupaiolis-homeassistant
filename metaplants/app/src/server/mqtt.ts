@@ -1,6 +1,7 @@
 import mqtt from 'mqtt';
 import type { Plant } from '../shared/types';
 import { store } from './store';
+import { broadcast } from './events';
 
 const MQTT_URL = process.env.MQTT_URL || 'mqtt://localhost:1883';
 const MQTT_USER = process.env.MQTT_USER || '';
@@ -9,6 +10,7 @@ const DISCOVERY_PREFIX = process.env.HA_DISCOVERY_PREFIX || 'homeassistant';
 const TOPIC_PREFIX = 'metaplants';
 
 let client: mqtt.MqttClient | null = null;
+const discoveredPlants = new Set<string>();
 
 export function connectMqtt(): Promise<void> {
 	return new Promise((resolve, reject) => {
@@ -66,7 +68,10 @@ function handleCommand(topic: string, message: Buffer) {
 	const result = store.addAction(plant.id, action, notes);
 	if (result) {
 		const updated = store.getPlant(plant.id);
-		if (updated) publishPlant(updated);
+		if (updated) {
+			publishState(updated);
+			broadcast({ type: 'plant-updated', plant: updated });
+		}
 		console.log(`[MQTT] Action '${action}' executed for plant '${plant.name}'`);
 	}
 }
@@ -86,9 +91,12 @@ function slugify(text: string): string {
 
 function publishDiscovery(plant: Plant) {
 	if (!client?.connected) return;
+	// Skip if already discovered this session (prevents duplicates on repeated publishes)
+	if (discoveredPlants.has(plant.id)) return;
+	discoveredPlants.add(plant.id);
 
 	const slug = slugify(plant.name);
-	const deviceId = 'metaplants_' + plant.id.slice(0, 8);
+	const deviceId = `metaplants_${plant.id}`;
 
 	const device = {
 		identifiers: [deviceId],
@@ -105,6 +113,7 @@ function publishDiscovery(plant: Plant) {
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/watering/config`,
 		JSON.stringify({
 			name: `${plant.name} Irrigazione`,
+			object_id: `${slug}_watering`,
 			unique_id: `${deviceId}_watering`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/watering`,
 			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
@@ -120,6 +129,7 @@ function publishDiscovery(plant: Plant) {
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/fertilizing/config`,
 		JSON.stringify({
 			name: `${plant.name} Fertilizzazione`,
+			object_id: `${slug}_fertilizing`,
 			unique_id: `${deviceId}_fertilizing`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/fertilizing`,
 			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
@@ -135,6 +145,7 @@ function publishDiscovery(plant: Plant) {
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/repotting/config`,
 		JSON.stringify({
 			name: `${plant.name} Rinvaso`,
+			object_id: `${slug}_repotting`,
 			unique_id: `${deviceId}_repotting`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/repotting`,
 			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
@@ -150,6 +161,7 @@ function publishDiscovery(plant: Plant) {
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/pruning/config`,
 		JSON.stringify({
 			name: `${plant.name} Potatura`,
+			object_id: `${slug}_pruning`,
 			unique_id: `${deviceId}_pruning`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/pruning`,
 			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
@@ -165,6 +177,7 @@ function publishDiscovery(plant: Plant) {
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/health/config`,
 		JSON.stringify({
 			name: `${plant.name} Salute`,
+			object_id: `${slug}_health`,
 			unique_id: `${deviceId}_health`,
 			state_topic: `${TOPIC_PREFIX}/plant/${slug}/health`,
 			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/health_attributes`,
@@ -188,6 +201,7 @@ function publishDiscovery(plant: Plant) {
 			`${DISCOVERY_PREFIX}/button/${deviceId}/${action}/config`,
 			JSON.stringify({
 				name: `${plant.name} ${name}`,
+				object_id: `${slug}_${action}`,
 				unique_id: `${deviceId}_btn_${action}`,
 				command_topic: `${TOPIC_PREFIX}/${slug}/${action}/set`,
 				device,
@@ -278,6 +292,13 @@ export function publishPlant(plant: Plant) {
 	publishState(plant);
 }
 
+export function republishPlant(plant: Plant) {
+	// Force re-discovery (e.g. after name/species change)
+	discoveredPlants.delete(plant.id);
+	publishDiscovery(plant);
+	publishState(plant);
+}
+
 export function publishAllPlants(plants: Plant[]) {
 	for (const plant of plants) {
 		publishPlant(plant);
@@ -287,8 +308,9 @@ export function publishAllPlants(plants: Plant[]) {
 export function removePlant(plant: Plant) {
 	if (!client?.connected) return;
 
-	const deviceId = 'metaplants_' + plant.id.slice(0, 8);
+	const deviceId = `metaplants_${plant.id}`;
 	const slug = slugify(plant.name);
+	discoveredPlants.delete(plant.id);
 
 	// Remove discovery configs
 	const sensorTypes = ['watering', 'fertilizing', 'repotting', 'pruning', 'health'];

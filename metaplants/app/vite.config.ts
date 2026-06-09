@@ -16,6 +16,10 @@ export default defineConfig({
 		},
 		allowedHosts: 'all',
 		proxy: {
+			'/api/events': {
+				target: 'http://localhost:3000',
+				headers: { 'Connection': 'keep-alive' },
+			},
 			'/api/': 'http://localhost:3000',
 		},
 	},

@@ -20,6 +20,30 @@ export function App() {
 		loadPlants();
 	}, [loadPlants]);
 
+	// Real-time updates via SSE
+	useEffect(() => {
+		const evtSource = new EventSource('/api/events');
+		evtSource.onmessage = (event) => {
+			try {
+				const data = JSON.parse(event.data);
+				if (data.type === 'plant-updated' || data.type === 'plant-created') {
+					setPlants((prev) => {
+						const idx = prev.findIndex((p) => p.id === data.plant.id);
+						if (idx >= 0) {
+							const next = [...prev];
+							next[idx] = data.plant;
+							return next;
+						}
+						return [...prev, data.plant];
+					});
+				} else if (data.type === 'plant-deleted') {
+					setPlants((prev) => prev.filter((p) => p.id !== data.plantId));
+				}
+			} catch { /* ignore parse errors */ }
+		};
+		return () => evtSource.close();
+	}, []);
+
 	useEffect(() => {
 		const handler = () => setCurrentLocale(getLocale());
 		window.addEventListener('locale-changed', handler);

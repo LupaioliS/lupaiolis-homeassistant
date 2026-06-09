@@ -6,11 +6,23 @@ import path from 'path';
 import { plantRoutes } from './routes/plants';
 import { connectMqtt, disconnectMqtt, publishAllPlants } from './mqtt';
 import { store } from './store';
+import { addClient } from './events';
 
 const fastify = Fastify({ logger: true });
 
 async function start() {
 	await fastify.register(fastifyCors);
+
+	// API routes
+	await fastify.register(plantRoutes, { prefix: '/api' });
+
+	// SSE endpoint for real-time updates
+	fastify.get('/api/events', (request, reply) => {
+		const raw = reply.raw;
+		addClient(raw);
+		// Prevent Fastify from closing the response
+		reply.hijack();
+	});
 
 	// API routes
 	await fastify.register(plantRoutes, { prefix: '/api' });

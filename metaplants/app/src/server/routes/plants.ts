@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { store } from '../store';
-import { publishPlant, publishAllPlants, removePlant } from '../mqtt';
+import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
+import { broadcast } from '../events';
 
 export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	// Get all plants
@@ -20,6 +21,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const { name, species, location, wateringIntervalDays, fertilizingIntervalDays, imageUrl, notes } = request.body;
 		const plant = store.createPlant({ name, species, location, wateringIntervalDays, fertilizingIntervalDays, imageUrl, notes });
 		publishPlant(plant);
+		broadcast({ type: 'plant-created', plant });
 		return plant;
 	});
 
@@ -27,7 +29,8 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	fastify.put<{ Params: { id: string }; Body: Partial<{ name: string; species: string; location: string; wateringIntervalDays: number; fertilizingIntervalDays: number; imageUrl: string; notes: string }> }>('/plants/:id', async (request, reply) => {
 		const plant = store.updatePlant(request.params.id, request.body);
 		if (!plant) return reply.status(404).send({ error: 'Plant not found' });
-		publishPlant(plant);
+		republishPlant(plant);
+		broadcast({ type: 'plant-updated', plant });
 		return plant;
 	});
 
@@ -36,6 +39,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const deleted = store.deletePlant(request.params.id);
 		if (!deleted) return reply.status(404).send({ error: 'Plant not found' });
 		removePlant(deleted);
+		broadcast({ type: 'plant-deleted', plantId: deleted.id });
 		return { success: true };
 	});
 
@@ -45,7 +49,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const action = store.addAction(request.params.id, type, notes);
 		if (!action) return reply.status(404).send({ error: 'Plant not found' });
 		const plant = store.getPlant(request.params.id);
-		if (plant) publishPlant(plant);
+		if (plant) {
+			publishPlant(plant);
+			broadcast({ type: 'plant-updated', plant });
+		}
 		return action;
 	});
 
@@ -60,7 +67,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const issue = store.addHealthIssue(request.params.id, { type, name: name as any, detectedDate, notes });
 		if (!issue) return reply.status(404).send({ error: 'Plant not found' });
 		const plant = store.getPlant(request.params.id);
-		if (plant) publishPlant(plant);
+		if (plant) {
+			publishPlant(plant);
+			broadcast({ type: 'plant-updated', plant });
+		}
 		return issue;
 	});
 
@@ -69,7 +79,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const issue = store.resolveHealthIssue(request.params.id, request.params.issueId, request.body.treatment);
 		if (!issue) return reply.status(404).send({ error: 'Issue not found' });
 		const plant = store.getPlant(request.params.id);
-		if (plant) publishPlant(plant);
+		if (plant) {
+			publishPlant(plant);
+			broadcast({ type: 'plant-updated', plant });
+		}
 		return issue;
 	});
 
@@ -78,6 +91,8 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const { productName, date, reason, notes } = request.body;
 		const usage = store.addProductUsage(request.params.id, { productName, date, reason, notes });
 		if (!usage) return reply.status(404).send({ error: 'Plant not found' });
+		const plant = store.getPlant(request.params.id);
+		if (plant) broadcast({ type: 'plant-updated', plant });
 		return usage;
 	});
 
