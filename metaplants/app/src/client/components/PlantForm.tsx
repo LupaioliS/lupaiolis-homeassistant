@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Plant, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
+import { api } from '../api';
 
 interface PlantFormProps {
 	plant: Plant | null;
@@ -23,11 +24,29 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 	const [wateringSchedule, setWateringSchedule] = useState<SeasonalSchedule>(plant?.wateringSchedule ?? defaultSchedule);
 	const [fertilizingSchedule, setFertilizingSchedule] = useState<SeasonalSchedule>(plant?.fertilizingSchedule ?? { spring: 14, summer: 10, autumn: 21, winter: 30 });
 	const [notes, setNotes] = useState(plant?.notes ?? '');
+	const [imageUrl, setImageUrl] = useState(plant?.imageUrl ?? '');
+	const [uploading, setUploading] = useState(false);
+
+	const handlePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		setUploading(true);
+		try {
+			const url = await api.uploadImage(file);
+			setImageUrl(url);
+		} catch {
+			alert('Upload error');
+		} finally {
+			setUploading(false);
+			e.target.value = '';
+		}
+	};
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 		onSubmit({
 			name, species, location, wateringIntervalDays, fertilizingIntervalDays,
+			imageUrl: imageUrl || undefined,
 			purchaseDate: purchaseDate || undefined,
 			lastRepotted: lastRepotted || undefined,
 			lastPruned: lastPruned || undefined,
@@ -45,6 +64,21 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 			<div className="modal" onClick={(e) => e.stopPropagation()}>
 				<h2>{plant ? t('plant.edit') : t('plant.new')}</h2>
 				<form onSubmit={handleSubmit}>
+					<div className="form-group">
+						<label>{t('plant.photo')}</label>
+						<div className="photo-field">
+							{imageUrl && <img className="photo-preview" src={imageUrl} alt="" />}
+							<div className="photo-actions">
+								<label className="btn btn-secondary btn-sm">
+									{uploading ? t('plant.uploading') : imageUrl ? t('plant.changePhoto') : t('plant.addPhoto')}
+									<input type="file" accept="image/*" onChange={handlePhoto} disabled={uploading} hidden />
+								</label>
+								{imageUrl && (
+									<button type="button" className="btn btn-danger btn-sm" onClick={() => setImageUrl('')}>{t('plant.removePhoto')}</button>
+								)}
+							</div>
+						</div>
+					</div>
 					<div className="form-group">
 						<label>{t('plant.name')}</label>
 						<input value={name} onChange={(e) => setName(e.target.value)} required placeholder="es. Monstera" />

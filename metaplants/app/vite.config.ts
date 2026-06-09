@@ -21,6 +21,7 @@ export default defineConfig({
 				headers: { 'Connection': 'keep-alive' },
 			},
 			'/api/': 'http://localhost:3000',
+			'/uploads/': 'http://localhost:3000',
 		},
 	},
 });

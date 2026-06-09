@@ -27,7 +27,7 @@ export const api = {
 		}),
 	getActions: (plantId: string) =>
 		request<PlantAction[]>(`/plants/${encodeURIComponent(plantId)}/actions`),
-	addHealthIssue: (plantId: string, data: { type: string; name: string; detectedDate: string; notes?: string }) =>
+	addHealthIssue: (plantId: string, data: { type: string; name: string; detectedDate: string; notes?: string; imageUrl?: string }) =>
 		request<HealthIssue>(`/plants/${encodeURIComponent(plantId)}/health`, {
 			method: 'POST',
 			body: JSON.stringify(data),
@@ -42,5 +42,13 @@ export const api = {
 			method: 'POST',
 			body: JSON.stringify(data),
 		}),
+	uploadImage: async (file: File): Promise<string> => {
+		const form = new FormData();
+		form.append('file', file);
+		const res = await fetch(`${BASE}/upload`, { method: 'POST', body: form });
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const data = (await res.json()) as { url: string };
+		return data.url;
+	},
 	syncMqtt: () => request<{ success: boolean }>('/mqtt/sync', { method: 'POST' }),
 };

@@ -14,6 +14,7 @@ export interface HealthIssue {
 	resolvedDate?: string;
 	treatment?: string;
 	notes?: string;
+	imageUrl?: string;
 }
 
 export interface ProductUsage {

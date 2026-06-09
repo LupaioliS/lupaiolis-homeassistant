@@ -6,10 +6,17 @@ import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/ty
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '../../data');
 const PLANTS_FILE = path.join(DATA_DIR, 'plants.json');
 const ACTIONS_FILE = path.join(DATA_DIR, 'actions.json');
+export const UPLOADS_DIR = path.join(DATA_DIR, 'uploads');
 
 function ensureDataDir() {
 	if (!fs.existsSync(DATA_DIR)) {
 		fs.mkdirSync(DATA_DIR, { recursive: true });
+	}
+}
+
+export function ensureUploadsDir() {
+	if (!fs.existsSync(UPLOADS_DIR)) {
+		fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 	}
 }
 

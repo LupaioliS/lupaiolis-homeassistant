@@ -1,9 +1,37 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { store } from '../store';
+import { randomUUID } from 'crypto';
+import fs from 'fs';
+import path from 'path';
+import { pipeline } from 'stream/promises';
+import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
 
+const ALLOWED_IMAGE_EXT: Record<string, string> = {
+	'image/jpeg': '.jpg',
+	'image/png': '.png',
+	'image/webp': '.webp',
+	'image/gif': '.gif',
+};
+
 export const plantRoutes: FastifyPluginAsync = async (fastify) => {
+	// Upload an image, returns its public URL
+	fastify.post('/upload', async (request, reply) => {
+		const file = await request.file();
+		if (!file) return reply.status(400).send({ error: 'No file uploaded' });
+		const ext = ALLOWED_IMAGE_EXT[file.mimetype];
+		if (!ext) return reply.status(415).send({ error: 'Unsupported image type' });
+		ensureUploadsDir();
+		const filename = `${randomUUID()}${ext}`;
+		const dest = path.join(UPLOADS_DIR, filename);
+		await pipeline(file.file, fs.createWriteStream(dest));
+		if (file.file.truncated) {
+			fs.unlinkSync(dest);
+			return reply.status(413).send({ error: 'File too large' });
+		}
+		return { url: `uploads/${filename}` };
+	});
+
 	// Get all plants
 	fastify.get('/plants', async () => {
 		return store.getPlants();
@@ -62,9 +90,9 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	// Add health issue
-	fastify.post<{ Params: { id: string }; Body: { type: 'pest' | 'disease' | 'fungus'; name: string; detectedDate: string; notes?: string } }>('/plants/:id/health', async (request, reply) => {
-		const { type, name, detectedDate, notes } = request.body;
-		const issue = store.addHealthIssue(request.params.id, { type, name: name as any, detectedDate, notes });
+	fastify.post<{ Params: { id: string }; Body: { type: 'pest' | 'disease' | 'fungus'; name: string; detectedDate: string; notes?: string; imageUrl?: string } }>('/plants/:id/health', async (request, reply) => {
+		const { type, name, detectedDate, notes, imageUrl } = request.body;
+		const issue = store.addHealthIssue(request.params.id, { type, name: name as any, detectedDate, notes, imageUrl });
 		if (!issue) return reply.status(404).send({ error: 'Plant not found' });
 		const plant = store.getPlant(request.params.id);
 		if (plant) {

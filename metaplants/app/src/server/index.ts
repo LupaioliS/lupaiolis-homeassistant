@@ -2,16 +2,22 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyCors from '@fastify/cors';
+import fastifyMultipart from '@fastify/multipart';
 import path from 'path';
 import { plantRoutes } from './routes/plants';
 import { connectMqtt, disconnectMqtt, publishAllPlants } from './mqtt';
-import { store } from './store';
+import { store, UPLOADS_DIR, ensureUploadsDir } from './store';
 import { addClient } from './events';
 
 const fastify = Fastify({ logger: true });
 
 async function start() {
 	await fastify.register(fastifyCors);
+
+	// Multipart for image uploads (max 8 MB per file)
+	await fastify.register(fastifyMultipart, {
+		limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+	});
 
 	// API routes
 	await fastify.register(plantRoutes, { prefix: '/api' });
@@ -28,6 +34,14 @@ async function start() {
 	const serverLocale = process.env.METAPLANTS_LANG || process.env.LANG?.split('.')[0]?.split('_')[0] || 'it';
 	fastify.get('/api/locale', async () => {
 		return { locale: serverLocale };
+	});
+
+	// Serve uploaded images from the persistent data directory
+	ensureUploadsDir();
+	await fastify.register(fastifyStatic, {
+		root: UPLOADS_DIR,
+		prefix: '/uploads/',
+		decorateReply: false,
 	});
 
 	// Serve React static files

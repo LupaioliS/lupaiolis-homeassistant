@@ -94,6 +94,8 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 	const [showProducts, setShowProducts] = useState(false);
 	const [issueType, setIssueType] = useState<HealthIssueType>('pest');
 	const [issueName, setIssueName] = useState('');
+	const [issueImageUrl, setIssueImageUrl] = useState('');
+	const [issueUploading, setIssueUploading] = useState(false);
 	const [productName, setProductName] = useState('');
 	const [productReason, setProductReason] = useState('');
 
@@ -115,17 +117,34 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 		if (!issueName) return;
 		const detectedDate = new Date().toISOString();
 		const tempId = `tmp-${Date.now()}`;
+		const imageUrl = issueImageUrl || undefined;
 		// Optimistic update
 		onPatch({
 			...plant,
 			healthIssues: [
 				...(plant.healthIssues ?? []),
-				{ id: tempId, type: issueType, name: issueName as HealthIssue['name'], detectedDate },
+				{ id: tempId, type: issueType, name: issueName as HealthIssue['name'], detectedDate, imageUrl },
 			],
 		});
 		setIssueName('');
+		setIssueImageUrl('');
 		// Sync in background; SSE will reconcile with the real ID
-		api.addHealthIssue(plant.id, { type: issueType, name: issueName, detectedDate }).catch(onRefresh);
+		api.addHealthIssue(plant.id, { type: issueType, name: issueName, detectedDate, imageUrl }).catch(onRefresh);
+	};
+
+	const handleIssuePhoto = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file) return;
+		setIssueUploading(true);
+		try {
+			const url = await api.uploadImage(file);
+			setIssueImageUrl(url);
+		} catch {
+			onRefresh();
+		} finally {
+			setIssueUploading(false);
+			e.target.value = '';
+		}
 	};
 
 	const handleResolveIssue = async (issueId: string) => {
@@ -175,6 +194,9 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 
 	return (
 		<div className="plant-card">
+			{plant.imageUrl && (
+				<img className="plant-photo" src={plant.imageUrl} alt={plant.name} />
+			)}
 			<h3>{plant.name}</h3>
 			<div className="species">{plant.species}</div>
 			<div className="location">📍 {plant.location}</div>
@@ -256,6 +278,13 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 						</select>
 						<button className="btn btn-primary btn-sm" onClick={handleAddIssue} disabled={!issueName}>+</button>
 					</div>
+					<div className="health-photo-row">
+						<label className="btn btn-secondary btn-sm">
+							📷 {issueUploading ? t('plant.uploading') : issueImageUrl ? t('plant.changePhoto') : t('plant.addPhoto')}
+							<input type="file" accept="image/*" onChange={handleIssuePhoto} disabled={issueUploading} hidden />
+						</label>
+						{issueImageUrl && <img className="issue-thumb" src={issueImageUrl} alt="" />}
+					</div>
 
 					{activeIssues.length > 0 && (
 						<div className="health-list">
@@ -263,6 +292,7 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 							{activeIssues.map((issue) => (
 								<div key={issue.id} className="health-item active">
 									<span>{getIssueLabel(issue)} - {formatDate(issue.detectedDate)}</span>
+									{issue.imageUrl && <img className="issue-thumb" src={issue.imageUrl} alt="" />}
 									<button className="btn btn-sm btn-secondary" onClick={() => handleResolveIssue(issue.id)}>✓</button>
 								</div>
 							))}
@@ -275,6 +305,7 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 							{resolvedIssues.map((issue) => (
 								<div key={issue.id} className="health-item resolved">
 									<span>{getIssueLabel(issue)} - {formatDate(issue.detectedDate)} → {formatDate(issue.resolvedDate)}</span>
+									{issue.imageUrl && <img className="issue-thumb" src={issue.imageUrl} alt="" />}
 									{issue.treatment && <small>{issue.treatment}</small>}
 								</div>
 							))}
