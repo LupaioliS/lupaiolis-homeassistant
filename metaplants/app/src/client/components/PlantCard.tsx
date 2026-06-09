@@ -5,8 +5,8 @@ import { api } from '../api';
 
 interface PlantCardProps {
 	plant: Plant;
-	onWater: () => void;
-	onFertilize: () => void;
+	onWater: () => void | Promise<void>;
+	onFertilize: () => void | Promise<void>;
 	onEdit: () => void;
 	onDelete: () => void;
 	onRefresh: () => void;
@@ -49,14 +49,33 @@ const pestOptions: PestType[] = ['aphids', 'spider_mites', 'mealybugs', 'scale',
 const diseaseOptions: DiseaseType[] = ['powdery_mildew', 'root_rot', 'leaf_spot', 'botrytis', 'rust', 'black_spot', 'downy_mildew'];
 const fungusOptions: FungusType[] = ['fusarium', 'pythium', 'phytophthora', 'alternaria', 'cercospora', 'anthracnose'];
 
-function ActionButton({ disabled: initialDisabled, className, onClick, label }: { disabled: boolean; className: string; onClick: () => void; label: string }) {
+function ActionButton({ disabled: initialDisabled, className, onClick, label }: { disabled: boolean; className: string; onClick: () => void | Promise<void>; label: string }) {
 	const [forced, setForced] = useState(false);
+	const [loading, setLoading] = useState(false);
+	const [elapsed, setElapsed] = useState(0);
 	const isDisabled = initialDisabled && !forced;
 
-	const handleClick = () => {
+	const handleClick = async () => {
 		setForced(false);
-		onClick();
+		setLoading(true);
+		setElapsed(0);
+		const start = Date.now();
+		const timer = setInterval(() => setElapsed(Date.now() - start), 100);
+		try {
+			await onClick();
+		} finally {
+			clearInterval(timer);
+			setLoading(false);
+		}
 	};
+
+	if (loading) {
+		return (
+			<button className={`${className} is-loading`} disabled>
+				<span className="spinner" /> {(elapsed / 1000).toFixed(1)}s
+			</button>
+		);
+	}
 
 	if (!isDisabled) {
 		return <button className={className} onClick={handleClick}>{label}</button>;
