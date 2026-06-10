@@ -10,7 +10,7 @@ function msUntilNextMidnight(): number {
 }
 
 
-export function startDaylyScheduler(): void {
+export function startDailyScheduler(): void {
     // Clear any existing timeout
     if (timeout) {
         clearTimeout(timeout);
