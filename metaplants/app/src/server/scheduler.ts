@@ -1,7 +1,7 @@
 import { store } from "./store";
 import { publishAllPlants } from "./mqtt";
 
-let timeout: NodeJS.Timeout | null = null
+let timeout: NodeJS.Timeout | null = null;
 
 function msUntilNextMidnight(): number {
     const next = new Date();
@@ -16,6 +16,27 @@ export function startDaylyScheduler(): void {
         clearTimeout(timeout);
     }
 
+    const tick = () => {
+        try {
+            publishAllPlants(store.getPlants());
+            console.log('[Scheduler] Daily republish done');
+        } catch(err) {
+            console.error('[Scheduler] Publish failed:', (err as Error).message);
+        }
 
-    // TODO Schedule the next run at midnight
+        timeout = setTimeout(tick, msUntilNextMidnight());
+		timeout.unref();
+    }
+
+    timeout = setTimeout(tick, msUntilNextMidnight());
+	timeout.unref();
+
+    console.log(`[Scheduler] Started, next run in ${msUntilNextMidnight()} ms`);
+}
+
+export function stopDailyScheduler(): void {
+	if (!timeout) return;
+	clearTimeout(timeout);
+	timeout = null;
+	console.log('[Scheduler] Stopped');
 }
