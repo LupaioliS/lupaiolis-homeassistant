@@ -10,6 +10,8 @@ import { store, UPLOADS_DIR, ensureUploadsDir } from './store';
 import { addClient } from './events';
 import { config } from './config';
 
+import { startDailyScheduler, stopDailyScheduler } from './scheduler';
+
 const fastify = Fastify({ logger: true });
 
 async function start() {
@@ -61,6 +63,7 @@ async function start() {
 	try {
 		await connectMqtt();
 		publishAllPlants(store.getPlants());
+		startDailyScheduler();
 	} catch (err) {
 		console.warn('[MQTT] Failed to connect, running without MQTT:', (err as Error).message);
 	}
@@ -70,10 +73,15 @@ async function start() {
 	console.log(`MetaPlants server running on port ${port}`);
 }
 
-process.on('SIGTERM', async () => {
+async function shutdown() {
+	stopDailyScheduler();
 	await disconnectMqtt();
 	process.exit(0);
-});
+}
+
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown); // utile in sviluppo con Ctrl-C
+
 
 start().catch((err) => {
 	fastify.log.error(err);
