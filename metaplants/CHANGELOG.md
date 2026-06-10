@@ -1,5 +1,8 @@
 # Changelog
 
+## 1.2.1
+- Added a daily scheduler that publishes updated plant data to MQTT at midnight, enabling Home Assistant automations to run without manual user interaction.
+
 ## 1.2.0
 
 - Add seasonal banner above the plant list showing the current season
