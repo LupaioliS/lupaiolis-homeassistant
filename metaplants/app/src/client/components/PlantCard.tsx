@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType } from '../../shared/types';
+import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, Season, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { getCurrentSeason } from '../season';
@@ -59,6 +59,12 @@ function getStatus(lastAction: string | undefined, intervalDays: number): { over
 
 	const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
 	return { overdue: false, label: t('status.inDays').replace('{days}', String(remainingDays)) };
+}
+
+function getIntervalForSeason(schedule: SeasonalSchedule | undefined, season: Season, fallbackDays: number): number {
+	const seasonal = schedule?.[season];
+	if (typeof seasonal === 'number' && seasonal > 0) return seasonal;
+	return fallbackDays;
 }
 
 function formatDate(dateStr?: string): string {
@@ -125,9 +131,11 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 	const [productName, setProductName] = useState('');
 	const [productReason, setProductReason] = useState('');
 
-	const waterStatus = getStatus(plant.lastWatered, plant.wateringIntervalDays);
-	const fertStatus = getStatus(plant.lastFertilized, plant.fertilizingIntervalDays);
 	const season = getCurrentSeason();
+	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
+	const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
+	const waterStatus = getStatus(plant.lastWatered, waterIntervalDays);
+	const fertStatus = getStatus(plant.lastFertilized, fertIntervalDays);
 
 	const handleRepot = async () => {
 		onPatch({ ...plant, lastRepotted: new Date().toISOString() });
