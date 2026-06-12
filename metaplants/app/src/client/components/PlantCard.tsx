@@ -21,12 +21,44 @@ function getDaysAgo(dateStr?: string): number | null {
 	return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
+function getHoursAgo(dateStr?: string): number | null {
+	if (!dateStr) return null;
+	const diff = Date.now() - new Date(dateStr).getTime();
+	return Math.floor(diff / (1000 * 60 * 60));
+}
+
 function getStatus(lastAction: string | undefined, intervalDays: number): { overdue: boolean; label: string } {
+	if (!lastAction) return { overdue: true, label: t('status.neverDone') };
+
 	const daysAgo = getDaysAgo(lastAction);
+	const hoursAgo = getHoursAgo(lastAction);
 	if (daysAgo === null) return { overdue: true, label: t('status.neverDone') };
-	if (daysAgo >= intervalDays) return { overdue: true, label: `${daysAgo}g fa (${t('status.overdue')})` };
-	const remaining = intervalDays - daysAgo;
-	return { overdue: false, label: t('status.inDays').replace('{days}', String(remaining)) };
+	if (hoursAgo === null) return { overdue: true, label: t('status.neverDone') };
+
+	const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
+	const elapsedMs = Date.now() - new Date(lastAction).getTime();
+
+	if (elapsedMs >= intervalMs) {
+		if (elapsedMs - intervalMs < 24 * 60 * 60 * 1000) {
+			return {
+				overdue: true,
+				label: `${t('status.hoursAgo').replace('{hours}', String(hoursAgo))} (${t('status.overdue')})`,
+			};
+		}
+		return {
+			overdue: true,
+			label: `${t('status.daysAgo').replace('{days}', String(daysAgo))} (${t('status.overdue')})`,
+		};
+	}
+
+	const remainingMs = intervalMs - elapsedMs;
+	if (remainingMs < 24 * 60 * 60 * 1000) {
+		const remainingHours = Math.max(1, Math.ceil(remainingMs / (1000 * 60 * 60)));
+		return { overdue: false, label: t('status.inHours').replace('{hours}', String(remainingHours)) };
+	}
+
+	const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
+	return { overdue: false, label: t('status.inDays').replace('{days}', String(remainingDays)) };
 }
 
 function formatDate(dateStr?: string): string {
