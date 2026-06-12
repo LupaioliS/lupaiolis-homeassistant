@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
+import type { SeasonalSchedule, Season } from '../../shared/types';
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
@@ -13,6 +14,20 @@ const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/webp': '.webp',
 	'image/gif': '.gif',
 };
+
+function getCurrentSeason(): Season {
+	const month = new Date().getMonth();
+	if (month >= 2 && month <= 4) return 'spring';
+	if (month >= 5 && month <= 7) return 'summer';
+	if (month >= 8 && month <= 10) return 'autumn';
+	return 'winter';
+}
+
+function getSeasonalInterval(schedule: SeasonalSchedule | undefined, season: Season, fallback: number): number {
+	const value = schedule?.[season];
+	if (typeof value === 'number' && value > 0) return value;
+	return fallback;
+}
 
 export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	// Upload an image, returns its public URL
@@ -45,17 +60,59 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	// Create plant
-	fastify.post<{ Body: { name: string; species: string; location: string; wateringIntervalDays: number; fertilizingIntervalDays: number; imageUrl?: string; notes?: string } }>('/plants', async (request) => {
-		const { name, species, location, wateringIntervalDays, fertilizingIntervalDays, imageUrl, notes } = request.body;
-		const plant = store.createPlant({ name, species, location, wateringIntervalDays, fertilizingIntervalDays, imageUrl, notes });
+	fastify.post<{ Body: { name: string; species: string; location: string; wateringSchedule?: SeasonalSchedule; fertilizingSchedule?: SeasonalSchedule; wateringIntervalDays?: number; fertilizingIntervalDays?: number; imageUrl?: string; purchaseDate?: string; lastRepotted?: string; lastPruned?: string; recommendedFertilizer?: string; notes?: string } }>('/plants', async (request) => {
+		const {
+			name,
+			species,
+			location,
+			wateringSchedule,
+			fertilizingSchedule,
+			wateringIntervalDays,
+			fertilizingIntervalDays,
+			imageUrl,
+			purchaseDate,
+			lastRepotted,
+			lastPruned,
+			recommendedFertilizer,
+			notes,
+		} = request.body;
+
+		const season = getCurrentSeason();
+		const computedWateringInterval = getSeasonalInterval(wateringSchedule, season, wateringIntervalDays ?? 3);
+		const computedFertilizingInterval = getSeasonalInterval(fertilizingSchedule, season, fertilizingIntervalDays ?? 14);
+
+		const plant = store.createPlant({
+			name,
+			species,
+			location,
+			wateringSchedule,
+			fertilizingSchedule,
+			wateringIntervalDays: computedWateringInterval,
+			fertilizingIntervalDays: computedFertilizingInterval,
+			imageUrl,
+			purchaseDate,
+			lastRepotted,
+			lastPruned,
+			recommendedFertilizer,
+			notes,
+		});
 		publishPlant(plant);
 		broadcast({ type: 'plant-created', plant });
 		return plant;
 	});
 
 	// Update plant
-	fastify.put<{ Params: { id: string }; Body: Partial<{ name: string; species: string; location: string; wateringIntervalDays: number; fertilizingIntervalDays: number; imageUrl: string; notes: string }> }>('/plants/:id', async (request, reply) => {
-		const plant = store.updatePlant(request.params.id, request.body);
+	fastify.put<{ Params: { id: string }; Body: Partial<{ name: string; species: string; location: string; wateringSchedule: SeasonalSchedule; fertilizingSchedule: SeasonalSchedule; wateringIntervalDays: number; fertilizingIntervalDays: number; imageUrl: string; purchaseDate: string; lastRepotted: string; lastPruned: string; recommendedFertilizer: string; notes: string }> }>('/plants/:id', async (request, reply) => {
+		const season = getCurrentSeason();
+		const body = { ...request.body };
+		if (body.wateringSchedule) {
+			body.wateringIntervalDays = getSeasonalInterval(body.wateringSchedule, season, body.wateringIntervalDays ?? 3);
+		}
+		if (body.fertilizingSchedule) {
+			body.fertilizingIntervalDays = getSeasonalInterval(body.fertilizingSchedule, season, body.fertilizingIntervalDays ?? 14);
+		}
+
+		const plant = store.updatePlant(request.params.id, body);
 		if (!plant) return reply.status(404).send({ error: 'Plant not found' });
 		republishPlant(plant);
 		broadcast({ type: 'plant-updated', plant });

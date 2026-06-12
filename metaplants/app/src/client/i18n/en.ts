@@ -40,7 +40,9 @@ export const en = {
 		neverDone: 'Never done',
 		overdue: 'overdue!',
 		inDays: 'in {days}d',
+		inHours: 'in {hours}h',
 		daysAgo: '{days}d ago',
+		hoursAgo: '{hours}h ago',
 	},
 	seasons: {
 		spring: 'Spring',

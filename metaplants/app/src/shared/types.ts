@@ -38,8 +38,10 @@ export interface Plant {
 	species: string;
 	location: string;
 	imageUrl?: string;
-	wateringIntervalDays: number;
-	fertilizingIntervalDays: number;
+	// Deprecated: use wateringSchedule instead.
+	wateringIntervalDays?: number;
+	// Deprecated: use fertilizingSchedule instead.
+	fertilizingIntervalDays?: number;
 	lastWatered?: string;
 	lastFertilized?: string;
 	lastRepotted?: string;

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.0
+
+- Seasonal schedules are now the single source of truth for watering and fertilizing intervals; the old generic interval fields have been deprecated and are kept only as a backward-compatible fallback for existing data
+- Status labels in the plant card now show hours instead of days when less than 24 hours remain before the next action is due
+- Scheduler changed from daily-at-midnight to every hour so MQTT state stays fresh throughout the day
+- The form no longer shows redundant interval inputs; everything is controlled by the seasonal schedule grid
+
 ## 1.2.1
 - Added a daily scheduler that publishes updated plant data to MQTT at midnight, enabling Home Assistant automations to run without manual user interaction.
 

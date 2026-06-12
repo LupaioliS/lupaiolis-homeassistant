@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType } from '../../shared/types';
+import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, Season, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { getCurrentSeason } from '../season';
@@ -21,12 +21,50 @@ function getDaysAgo(dateStr?: string): number | null {
 	return Math.floor(diff / (1000 * 60 * 60 * 24));
 }
 
+function getHoursAgo(dateStr?: string): number | null {
+	if (!dateStr) return null;
+	const diff = Date.now() - new Date(dateStr).getTime();
+	return Math.floor(diff / (1000 * 60 * 60));
+}
+
 function getStatus(lastAction: string | undefined, intervalDays: number): { overdue: boolean; label: string } {
+	if (!lastAction) return { overdue: true, label: t('status.neverDone') };
+
 	const daysAgo = getDaysAgo(lastAction);
+	const hoursAgo = getHoursAgo(lastAction);
 	if (daysAgo === null) return { overdue: true, label: t('status.neverDone') };
-	if (daysAgo >= intervalDays) return { overdue: true, label: `${daysAgo}g fa (${t('status.overdue')})` };
-	const remaining = intervalDays - daysAgo;
-	return { overdue: false, label: t('status.inDays').replace('{days}', String(remaining)) };
+	if (hoursAgo === null) return { overdue: true, label: t('status.neverDone') };
+
+	const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
+	const elapsedMs = Date.now() - new Date(lastAction).getTime();
+
+	if (elapsedMs >= intervalMs) {
+		if (elapsedMs - intervalMs < 24 * 60 * 60 * 1000) {
+			return {
+				overdue: true,
+				label: `${t('status.hoursAgo').replace('{hours}', String(hoursAgo))} (${t('status.overdue')})`,
+			};
+		}
+		return {
+			overdue: true,
+			label: `${t('status.daysAgo').replace('{days}', String(daysAgo))} (${t('status.overdue')})`,
+		};
+	}
+
+	const remainingMs = intervalMs - elapsedMs;
+	if (remainingMs < 24 * 60 * 60 * 1000) {
+		const remainingHours = Math.max(1, Math.ceil(remainingMs / (1000 * 60 * 60)));
+		return { overdue: false, label: t('status.inHours').replace('{hours}', String(remainingHours)) };
+	}
+
+	const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
+	return { overdue: false, label: t('status.inDays').replace('{days}', String(remainingDays)) };
+}
+
+function getIntervalForSeason(schedule: SeasonalSchedule | undefined, season: Season, fallbackDays: number): number {
+	const seasonal = schedule?.[season];
+	if (typeof seasonal === 'number' && seasonal > 0) return seasonal;
+	return fallbackDays;
 }
 
 function formatDate(dateStr?: string): string {
@@ -93,9 +131,11 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 	const [productName, setProductName] = useState('');
 	const [productReason, setProductReason] = useState('');
 
-	const waterStatus = getStatus(plant.lastWatered, plant.wateringIntervalDays);
-	const fertStatus = getStatus(plant.lastFertilized, plant.fertilizingIntervalDays);
 	const season = getCurrentSeason();
+	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
+	const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
+	const waterStatus = getStatus(plant.lastWatered, waterIntervalDays);
+	const fertStatus = getStatus(plant.lastFertilized, fertIntervalDays);
 
 	const handleRepot = async () => {
 		onPatch({ ...plant, lastRepotted: new Date().toISOString() });

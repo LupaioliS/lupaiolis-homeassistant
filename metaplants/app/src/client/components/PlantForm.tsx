@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Plant, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
-import { computeSeasonalSuggestions } from '../season';
+import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
 import { withBase } from '../basePath';
 
 interface PlantFormProps {
@@ -17,14 +17,22 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 	const [name, setName] = useState(plant?.name ?? '');
 	const [species, setSpecies] = useState(plant?.species ?? '');
 	const [location, setLocation] = useState(plant?.location ?? '');
-	const [wateringIntervalDays, setWateringInterval] = useState(plant?.wateringIntervalDays ?? 3);
-	const [fertilizingIntervalDays, setFertilizingInterval] = useState(plant?.fertilizingIntervalDays ?? 14);
 	const [purchaseDate, setPurchaseDate] = useState(plant?.purchaseDate ?? '');
 	const [lastRepotted, setLastRepotted] = useState(plant?.lastRepotted ?? '');
 	const [lastPruned, setLastPruned] = useState(plant?.lastPruned ?? '');
 	const [recommendedFertilizer, setRecommendedFertilizer] = useState(plant?.recommendedFertilizer ?? '');
-	const [wateringSchedule, setWateringSchedule] = useState<SeasonalSchedule>(plant?.wateringSchedule ?? defaultSchedule);
-	const [fertilizingSchedule, setFertilizingSchedule] = useState<SeasonalSchedule>(plant?.fertilizingSchedule ?? { spring: 14, summer: 10, autumn: 21, winter: 30 });
+	const [wateringSchedule, setWateringSchedule] = useState<SeasonalSchedule>(plant?.wateringSchedule ?? {
+		spring: plant?.wateringIntervalDays ?? defaultSchedule.spring,
+		summer: plant?.wateringIntervalDays ?? defaultSchedule.summer,
+		autumn: plant?.wateringIntervalDays ?? defaultSchedule.autumn,
+		winter: plant?.wateringIntervalDays ?? defaultSchedule.winter,
+	});
+	const [fertilizingSchedule, setFertilizingSchedule] = useState<SeasonalSchedule>(plant?.fertilizingSchedule ?? {
+		spring: plant?.fertilizingIntervalDays ?? 14,
+		summer: plant?.fertilizingIntervalDays ?? 10,
+		autumn: plant?.fertilizingIntervalDays ?? 21,
+		winter: plant?.fertilizingIntervalDays ?? 30,
+	});
 	const [notes, setNotes] = useState(plant?.notes ?? '');
 	const [imageUrl, setImageUrl] = useState(plant?.imageUrl ?? '');
 	const [uploading, setUploading] = useState(false);
@@ -58,13 +66,17 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
+		const season = getCurrentSeason();
 		onSubmit({
-			name, species, location, wateringIntervalDays, fertilizingIntervalDays,
+			name, species, location,
 			imageUrl: imageUrl || undefined,
 			purchaseDate: purchaseDate || undefined,
 			lastRepotted: lastRepotted || undefined,
 			lastPruned: lastPruned || undefined,
 			recommendedFertilizer: recommendedFertilizer || undefined,
+			// Keep legacy fields in sync for backward compatibility.
+			wateringIntervalDays: wateringSchedule[season],
+			fertilizingIntervalDays: fertilizingSchedule[season],
 			wateringSchedule,
 			fertilizingSchedule,
 			notes,
@@ -109,14 +121,7 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 						<label>{t('plant.purchaseDate')}</label>
 						<input type="date" value={purchaseDate ? purchaseDate.split('T')[0] : ''} onChange={(e) => setPurchaseDate(e.target.value ? new Date(e.target.value).toISOString() : '')} />
 					</div>
-					<div className="form-group">
-						<label>{t('plant.wateringInterval')}</label>
-						<input type="number" min={1} value={wateringIntervalDays} onChange={(e) => setWateringInterval(Number(e.target.value))} required />
-					</div>
-					<div className="form-group">
-						<label>{t('plant.fertilizingInterval')}</label>
-						<input type="number" min={1} value={fertilizingIntervalDays} onChange={(e) => setFertilizingInterval(Number(e.target.value))} required />
-					</div>
+					
 					<div className="form-group">
 						<label>{t('plant.recommendedFertilizer')}</label>
 						<input value={recommendedFertilizer} onChange={(e) => setRecommendedFertilizer(e.target.value)} placeholder="es. NPK 20-20-20" />

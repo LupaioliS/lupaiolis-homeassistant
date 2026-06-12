@@ -1,5 +1,5 @@
 import mqtt from 'mqtt';
-import type { Plant } from '../shared/types';
+import type { Plant, Season, SeasonalSchedule } from '../shared/types';
 import { store } from './store';
 import { broadcast } from './events';
 import { mt } from './i18n';
@@ -251,27 +251,44 @@ function daysAgo(dateStr?: string): number | null {
 	return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
 }
 
+function getCurrentSeason(): Season {
+	const month = new Date().getMonth();
+	if (month >= 2 && month <= 4) return 'spring';
+	if (month >= 5 && month <= 7) return 'summer';
+	if (month >= 8 && month <= 10) return 'autumn';
+	return 'winter';
+}
+
+function getSeasonalInterval(schedule: SeasonalSchedule | undefined, season: Season, fallback: number): number {
+	const value = schedule?.[season];
+	if (typeof value === 'number' && value > 0) return value;
+	return fallback;
+}
+
 function publishState(plant: Plant) {
 	if (!client?.connected) return;
 
 	const slug = slugify(plant.name);
+	const season = getCurrentSeason();
+	const wateringIntervalDays = getSeasonalInterval(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
+	const fertilizingIntervalDays = getSeasonalInterval(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 
 	// Watering state
 	const waterDays = daysAgo(plant.lastWatered);
 	const waterState = waterDays === null
 		? mt('watering.never')
-		: waterDays >= plant.wateringIntervalDays
+		: waterDays >= wateringIntervalDays
 			? mt('watering.overdue')
-			: mt('watering.ok', { days: plant.wateringIntervalDays - waterDays });
+			: mt('watering.ok', { days: wateringIntervalDays - waterDays });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState, { retain: true });
 
 	// Fertilizing state
 	const fertDays = daysAgo(plant.lastFertilized);
 	const fertState = fertDays === null
 		? mt('fertilizing.never')
-		: fertDays >= plant.fertilizingIntervalDays
+		: fertDays >= fertilizingIntervalDays
 			? mt('fertilizing.overdue')
-			: mt('fertilizing.ok', { days: plant.fertilizingIntervalDays - fertDays });
+			: mt('fertilizing.ok', { days: fertilizingIntervalDays - fertDays });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/fertilizing`, fertState, { retain: true });
 
 	// Repotting state
@@ -303,8 +320,8 @@ function publishState(plant: Plant) {
 		species: plant.species,
 		location: plant.location,
 		purchase_date: plant.purchaseDate || null,
-		watering_interval_days: plant.wateringIntervalDays,
-		fertilizing_interval_days: plant.fertilizingIntervalDays,
+		watering_interval_days: wateringIntervalDays,
+		fertilizing_interval_days: fertilizingIntervalDays,
 		last_watered: plant.lastWatered || null,
 		last_fertilized: plant.lastFertilized || null,
 		last_repotted: plant.lastRepotted || null,

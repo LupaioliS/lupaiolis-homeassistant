@@ -40,7 +40,9 @@ export const it = {
 		neverDone: 'Mai fatto',
 		overdue: 'scaduto!',
 		inDays: 'tra {days}g',
+		inHours: 'tra {hours}h',
 		daysAgo: '{days}g fa',
+		hoursAgo: '{hours}h fa',
 	},
 	seasons: {
 		spring: 'Primavera',
