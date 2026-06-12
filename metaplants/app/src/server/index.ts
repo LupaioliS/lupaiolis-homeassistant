@@ -10,7 +10,7 @@ import { store, UPLOADS_DIR, ensureUploadsDir } from './store';
 import { addClient } from './events';
 import { config } from './config';
 
-import { startDailyScheduler, stopDailyScheduler } from './scheduler';
+import { startHourlyScheduler, stopDailyScheduler } from './scheduler';
 
 const fastify = Fastify({ logger: true });
 
@@ -63,7 +63,7 @@ async function start() {
 	try {
 		await connectMqtt();
 		publishAllPlants(store.getPlants());
-		startDailyScheduler();
+		startHourlyScheduler();
 	} catch (err) {
 		console.warn('[MQTT] Failed to connect, running without MQTT:', (err as Error).message);
 	}
