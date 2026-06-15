@@ -81,6 +81,8 @@ season from that history: it measures the gaps between consecutive waterings
 field shows the suggestion — tap to apply it, or ignore it. You need at least
 two logged actions before anything shows up.
 
+![Seasonal Schedules & Suggestions](https://github.com/LupaioliS/lupaiolis-homeassistant/blob/feature/homeassistant-sensor/metaplants/app/projectimages/suggestion.png "Seasonal Schedules & Suggestions")
+
 ## Entities for Automation
 
 Because each plant generates entities in Home Assistant, you can use them in automations, dashboards, and notifications.
