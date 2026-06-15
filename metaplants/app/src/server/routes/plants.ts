@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import type { SeasonalSchedule, Season } from '../../shared/types';
+import type { SeasonalSchedule, Season, PlantSensors } from '../../shared/types';
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
@@ -75,6 +75,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 			lastPruned?: string; 
 			recommendedFertilizer?: string; 
 			notes?: string;
+			sensors?: PlantSensors;
 		} 
 	}>('/plants', async (request) => {
 		const {
@@ -91,6 +92,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 			lastPruned,
 			recommendedFertilizer,
 			notes,
+			sensors
 		} = request.body;
 
 		const season = getCurrentSeason();
@@ -111,6 +113,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 			lastPruned,
 			recommendedFertilizer,
 			notes,
+			sensors
 		});
 		publishPlant(plant);
 		broadcast({ type: 'plant-created', plant });
@@ -118,7 +121,27 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	// Update plant
-	fastify.put<{ Params: { id: string }; Body: Partial<{ name: string; species: string; location: string; wateringSchedule: SeasonalSchedule; fertilizingSchedule: SeasonalSchedule; wateringIntervalDays: number; fertilizingIntervalDays: number; imageUrl: string; purchaseDate: string; lastRepotted: string; lastPruned: string; recommendedFertilizer: string; notes: string }> }>('/plants/:id', async (request, reply) => {
+	fastify.put<{ 
+		Params: { 
+			id: string 
+		}; 
+		Body: Partial<{ 
+			name: string; 
+			species: string; 
+			location: string; 
+			wateringSchedule: SeasonalSchedule; 
+			fertilizingSchedule: SeasonalSchedule; 
+			wateringIntervalDays: number; 
+			fertilizingIntervalDays: number; 
+			imageUrl: string; 
+			purchaseDate: string; 
+			lastRepotted: string; 
+			lastPruned: string; 
+			recommendedFertilizer: string; 
+			notes: string;
+			sensors: PlantSensors;
+		}> 
+	}>('/plants/:id', async (request, reply) => {
 		const season = getCurrentSeason();
 		const body = { ...request.body };
 		if (body.wateringSchedule) {
