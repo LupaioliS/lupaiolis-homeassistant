@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Plant, SeasonalSchedule } from '../../shared/types';
+import type { Plant, PlantSensors, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
@@ -35,6 +35,9 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 	});
 	const [notes, setNotes] = useState(plant?.notes ?? '');
 	const [imageUrl, setImageUrl] = useState(plant?.imageUrl ?? '');
+
+	const [sensors, setSensors] = useState<PlantSensors>(plant?.sensors ?? {});
+
 	const [uploading, setUploading] = useState(false);
 	const [wateringSuggestions, setWateringSuggestions] = useState<Partial<SeasonalSchedule>>({});
 	const [fertilizingSuggestions, setFertilizingSuggestions] = useState<Partial<SeasonalSchedule>>({});
@@ -79,6 +82,12 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 			fertilizingIntervalDays: fertilizingSchedule[season],
 			wateringSchedule,
 			fertilizingSchedule,
+			sensors: (sensors.temperature?.trim() || sensors.humidity?.trim())
+				? {
+					temperature: sensors.temperature?.trim() || undefined,
+					humidity: sensors.humidity?.trim() || undefined,
+				}
+			: undefined,
 			notes,
 		});
 	};
@@ -166,6 +175,26 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 									)}
 								</div>
 							))}
+						</div>
+					</fieldset>
+
+					<fieldset className="form-fieldset">
+						<legend>{t('plant.sensorsTitle')}</legend>
+						<div className="form-group">
+							<label>{t('plant.sensorTemperature')}</label>
+							<input
+								value={sensors.temperature ?? ''}
+								onChange={(e) => setSensors({ ...sensors, temperature: e.target.value })}
+								placeholder={t('plant.sensorTemperaturePlaceholder')}
+							/>
+						</div>
+						<div className="form-group">
+							<label>{t('plant.sensorHumidity')}</label>
+							<input
+								value={sensors.humidity ?? ''}
+								onChange={(e) => setSensors({ ...sensors, humidity: e.target.value })}
+								placeholder={t('plant.sensorHumidityPlaceholder')}
+							/>
 						</div>
 					</fieldset>
 
