@@ -1,7 +1,7 @@
 import { store } from './store';
 import { getEntityState, isHaAvailable } from './homeassistant';
 import { broadcast } from './events';
-import { PlantReadings } from '../shared/types';
+import { Plant, PlantReadings } from '../shared/types';
 
 
 const readings = new Map<string, PlantReadings>(); // plantId -> ultimi valori
@@ -15,25 +15,34 @@ export function getAllReadings(): Record<string, PlantReadings> {
 	return Object.fromEntries(readings);
 }
 
+async function readPlant(plant: Plant): Promise<void> {
+	const s = plant.sensors;
+	if (!s?.temperature && !s?.humidity) return;
+
+	const [temp, hum] = await Promise.all([
+		s?.temperature ? getEntityState(s.temperature) : Promise.resolve(null),
+		s?.humidity ? getEntityState(s.humidity) : Promise.resolve(null),
+	]);
+
+	const next: PlantReadings = {
+		temperature: temp?.value ?? null,
+		humidity: hum?.value ?? null,
+		updatedAt: new Date().toISOString(),
+	};
+
+	readings.set(plant.id, next);
+	broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
+}
+
 async function pollOnce(): Promise<void> {
 	for (const plant of store.getPlants()) {
-		const s = plant.sensors;
-		if (!s?.temperature && !s?.humidity) continue;
-
-		const [temp, hum] = await Promise.all([
-			s?.temperature ? getEntityState(s.temperature) : Promise.resolve(null),
-			s?.humidity ? getEntityState(s.humidity) : Promise.resolve(null),
-		]);
-
-		const next: PlantReadings = {
-			temperature: temp?.value ?? null,
-			humidity: hum?.value ?? null,
-			updatedAt: new Date().toISOString(),
-		};
-
-		readings.set(plant.id, next);
-		broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
+		await readPlant(plant);
 	}
+}
+
+export async function refreshPlantReadings(plant: Plant): Promise<void> {
+	if (!isHaAvailable()) return; // no token = no-op
+	await readPlant(plant);
 }
 
 export function startSensorPolling(intervalMs = 60_000): void {

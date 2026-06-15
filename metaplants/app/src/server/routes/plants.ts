@@ -7,7 +7,7 @@ import type { SeasonalSchedule, Season, PlantSensors } from '../../shared/types'
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
-import { getAllReadings } from '../sensors';
+import { getAllReadings, refreshPlantReadings } from '../sensors';
 
 const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/jpeg': '.jpg',
@@ -118,6 +118,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		});
 		publishPlant(plant);
 		broadcast({ type: 'plant-created', plant });
+		void refreshPlantReadings(plant);
 		return plant;
 	});
 
@@ -156,6 +157,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		if (!plant) return reply.status(404).send({ error: 'Plant not found' });
 		republishPlant(plant);
 		broadcast({ type: 'plant-updated', plant });
+		void refreshPlantReadings(plant);
 		return plant;
 	});
 
