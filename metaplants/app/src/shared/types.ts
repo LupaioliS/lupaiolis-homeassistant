@@ -30,6 +30,12 @@ export interface SeasonalSchedule {
 	summer: number;
 	autumn: number;
 	winter: number;
+
+}
+
+export interface PlantSensors {
+	temperature?: string;   // es "sensor.salotto_temperatura"
+	humidity?: string;      // es"sensor.salotto_umidita"
 }
 
 export interface Plant {
@@ -54,6 +60,8 @@ export interface Plant {
 	productHistory?: ProductUsage[];
 	notes?: string;
 	createdAt: string;
+	//Homeassistant:
+	sensors?: PlantSensors;
 }
 
 export interface PlantAction {

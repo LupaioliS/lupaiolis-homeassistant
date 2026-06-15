@@ -60,7 +60,23 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	// Create plant
-	fastify.post<{ Body: { name: string; species: string; location: string; wateringSchedule?: SeasonalSchedule; fertilizingSchedule?: SeasonalSchedule; wateringIntervalDays?: number; fertilizingIntervalDays?: number; imageUrl?: string; purchaseDate?: string; lastRepotted?: string; lastPruned?: string; recommendedFertilizer?: string; notes?: string } }>('/plants', async (request) => {
+	fastify.post<{ 
+		Body: { 
+			name: string; 
+			species: string; 
+			location: string; 
+			wateringSchedule?: SeasonalSchedule; 
+			fertilizingSchedule?: SeasonalSchedule; 
+			wateringIntervalDays?: number; 
+			fertilizingIntervalDays?: number; 
+			imageUrl?: string; 
+			purchaseDate?: string; 
+			lastRepotted?: string; 
+			lastPruned?: string; 
+			recommendedFertilizer?: string; 
+			notes?: string;
+		} 
+	}>('/plants', async (request) => {
 		const {
 			name,
 			species,
