@@ -52,6 +52,34 @@ Base project topics:
 
 Discovery is published under a configurable prefix (default: `homeassistant`).
 
+## Environmental Readings
+
+You can link each plant to Home Assistant temperature and/or humidity sensors
+and see their live values on the plant card. In the plant form, paste the
+sensor's `entity_id` (e.g. `sensor.living_room_temperature`) — fill in either,
+both, or neither.
+
+MetaPlants reads the states through the Supervisor proxy, so you don't need a
+token or URL; the add-on just needs `homeassistant_api: true` (already set).
+Values refresh every 60 seconds, plus an immediate read when you save a plant
+and once when you reload the page. Unavailable sensors or wrong entity IDs are
+quietly skipped.
+
+Readings are display-only: they aren't saved to disk or pushed to MQTT, since a
+stale temperature is worse than none. Only the entity ID you pick is stored
+with the plant.
+
+## Seasonal Schedules & Suggestions
+
+Watering and fertilizing intervals are set per season, since a plant in July
+rarely wants the same schedule it does in January. The card uses the current
+season's interval to decide when a plant is due.
+
+If you've been logging actions, MetaPlants can suggest a frequency for each
+season from that history: it measures the gaps between consecutive waterings
+(or feedings), groups them by season, and averages. A 💡 button next to each
+field shows the suggestion — tap to apply it, or ignore it. You need at least
+two logged actions before anything shows up.
 
 ## Entities for Automation
 
