@@ -48,6 +48,13 @@ export async function getEntityState(entityId: string): Promise<EntityState | nu
 		};
 
 		const num = Number(data.state);
+
+		console.log(`[HA] Read ${entityId}:`, {
+			state: data.state,
+			value: Number.isFinite(num) ? num : null,
+			unit: data.attributes?.unit_of_measurement,
+		});
+
 		return {
 			entityId: data.entity_id,
 			state: data.state,

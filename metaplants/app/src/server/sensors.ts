@@ -1,12 +1,8 @@
 import { store } from './store';
 import { getEntityState, isHaAvailable } from './homeassistant';
 import { broadcast } from './events';
+import { PlantReadings } from '../shared/types';
 
-export interface PlantReadings {
-	temperature: number | null;
-	humidity: number | null;
-	updatedAt: string;
-}
 
 const readings = new Map<string, PlantReadings>(); // plantId -> ultimi valori
 let timer: NodeJS.Timeout | null = null;

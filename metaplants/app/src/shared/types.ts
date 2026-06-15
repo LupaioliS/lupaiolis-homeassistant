@@ -37,6 +37,11 @@ export interface PlantSensors {
 	temperature?: string;   // es "sensor.salotto_temperatura"
 	humidity?: string;      // es"sensor.salotto_umidita"
 }
+export interface PlantReadings {
+	temperature: number | null;
+	humidity: number | null;
+	updatedAt: string;
+}
 
 export interface Plant {
 	id: string;
