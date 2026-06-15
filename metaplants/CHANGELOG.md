@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0
+
+- Link plants to Home Assistant temperature and/or humidity sensors and see their live values on the plant card; readings refresh every minute, immediately on save, and on page load (requires `homeassistant_api`, already enabled)
+- Readings are display-only and kept in memory: not persisted to disk or published to MQTT
+
 ## 1.3.0
 
 - Seasonal schedules are now the single source of truth for watering and fertilizing intervals; the old generic interval fields have been deprecated and are kept only as a backward-compatible fallback for existing data

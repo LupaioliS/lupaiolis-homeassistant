@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, Season, SeasonalSchedule } from '../../shared/types';
+import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, Season, SeasonalSchedule, PlantReadings } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { getCurrentSeason } from '../season';
@@ -7,6 +7,7 @@ import { withBase } from '../basePath';
 
 interface PlantCardProps {
 	plant: Plant;
+	readings?: PlantReadings;
 	onWater: () => void | Promise<void>;
 	onFertilize: () => void | Promise<void>;
 	onEdit: () => void;
@@ -121,7 +122,7 @@ function ActionButton({ disabled: initialDisabled, className, onClick, label }: 
 	);
 }
 
-export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRefresh, onPatch }: PlantCardProps) {
+export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDelete, onRefresh, onPatch }: PlantCardProps) {
 	const [showHealth, setShowHealth] = useState(false);
 	const [showProducts, setShowProducts] = useState(false);
 	const [issueType, setIssueType] = useState<HealthIssueType>('pest');
@@ -247,6 +248,17 @@ export function PlantCard({ plant, onWater, onFertilize, onEdit, onDelete, onRef
 					🧪 {fertStatus.label}
 				</span>
 			</div>
+		
+			{readings && (readings.temperature !== null || readings.humidity !== null) && (
+				<div className="status">
+					{readings.temperature !== null && (
+						<span className="status-item ok">🌡️ {readings.temperature}°</span>
+					)}
+					{readings.humidity !== null && (
+						<span className="status-item ok">💦 {readings.humidity}%</span>
+					)}
+				</div>
+			)}
 
 			{plant.wateringSchedule && (
 				<div className="seasonal-info">

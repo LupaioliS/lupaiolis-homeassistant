@@ -28,7 +28,7 @@ export function startHourlyScheduler(): void {
     console.log(`[Scheduler] Started, next run in ${HOURLY_INTERVAL_MS} ms`);
 }
 
-export function stopDailyScheduler(): void {
+export function stopHourlyScheduler(): void {
 	if (!timeout) return;
 	clearTimeout(timeout);
 	timeout = null;

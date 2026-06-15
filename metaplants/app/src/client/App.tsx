@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { Plant } from '../shared/types';
+import type { Plant, PlantReadings } from '../shared/types';
 import { api } from './api';
 import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
@@ -12,14 +12,20 @@ export function App() {
 	const [showForm, setShowForm] = useState(false);
 	const [editingPlant, setEditingPlant] = useState<Plant | null>(null);
 	const [ready, setReady] = useState(false);
+	const [readings, setReadings] = useState<Record<string, PlantReadings>>({});
 
 	useEffect(() => {
 		initLocale().then(() => setReady(true));
 	}, []);
 
+
 	const loadPlants = useCallback(async () => {
-		const data = await api.getPlants();
+		const [data, initialReadings] = await Promise.all([
+			api.getPlants(),
+			api.getReadings().catch(() => ({} as Record<string, PlantReadings>)),
+		]);
 		setPlants(data);
+		setReadings(initialReadings);
 	}, []);
 
 	useEffect(() => {
@@ -44,6 +50,8 @@ export function App() {
 					});
 				} else if (data.type === 'plant-deleted') {
 					setPlants((prev) => prev.filter((p) => p.id !== data.plantId));
+				} else if (data.type === 'plant-readings') {
+					setReadings((prev) => ({ ...prev, [data.plantId]: data.readings }));
 				}
 			} catch { /* ignore parse errors */ }
 		};
@@ -122,6 +130,7 @@ export function App() {
 						<PlantCard
 							key={plant.id}
 							plant={plant}
+							readings={readings[plant.id]}
 							onWater={() => handleWater(plant.id)}
 							onFertilize={() => handleFertilize(plant.id)}
 							onEdit={() => handleEdit(plant)}
