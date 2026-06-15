@@ -7,6 +7,7 @@ import type { SeasonalSchedule, Season, PlantSensors } from '../../shared/types'
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
+import { getAllReadings } from '../sensors';
 
 const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/jpeg': '.jpg',
@@ -225,4 +226,6 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		publishAllPlants(store.getPlants());
 		return { success: true };
 	});
+
+	fastify.get('/readings', async () => getAllReadings());
 };

@@ -18,9 +18,14 @@ export function App() {
 		initLocale().then(() => setReady(true));
 	}, []);
 
+
 	const loadPlants = useCallback(async () => {
-		const data = await api.getPlants();
+		const [data, initialReadings] = await Promise.all([
+			api.getPlants(),
+			api.getReadings().catch(() => ({} as Record<string, PlantReadings>)),
+		]);
 		setPlants(data);
+		setReadings(initialReadings);
 	}, []);
 
 	useEffect(() => {

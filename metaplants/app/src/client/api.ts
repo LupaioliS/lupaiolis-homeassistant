@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/types';
+import type { Plant, PlantAction, HealthIssue, ProductUsage, PlantReadings } from '../shared/types';
 import { BASE_PATH } from './basePath';
 
 const BASE = `${BASE_PATH}/api`;
@@ -56,4 +56,6 @@ export const api = {
 		return data.url;
 	},
 	syncMqtt: () => request<{ success: boolean }>('/mqtt/sync', { method: 'POST' }),
+	
+	getReadings: () => request<Record<string, PlantReadings>>('/readings'),
 };

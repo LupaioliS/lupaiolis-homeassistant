@@ -11,6 +11,10 @@ export function getReadings(plantId: string): PlantReadings | undefined {
 	return readings.get(plantId);
 }
 
+export function getAllReadings(): Record<string, PlantReadings> {
+	return Object.fromEntries(readings);
+}
+
 async function pollOnce(): Promise<void> {
 	for (const plant of store.getPlants()) {
 		const s = plant.sensors;
