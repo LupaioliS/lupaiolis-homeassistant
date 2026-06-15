@@ -265,6 +265,35 @@ function getSeasonalInterval(schedule: SeasonalSchedule | undefined, season: Sea
 	return fallback;
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+// Mirrors the client-side getStatus(): hour-aware granularity within 24h, days otherwise.
+function getActionStatus(lastAction: string | undefined, intervalDays: number, neverKey: string): string {
+	if (!lastAction) return mt(neverKey);
+
+	const elapsedMs = Date.now() - new Date(lastAction).getTime();
+	const daysAgo = Math.floor(elapsedMs / DAY_MS);
+	const hoursAgo = Math.floor(elapsedMs / HOUR_MS);
+	const intervalMs = intervalDays * DAY_MS;
+
+	if (elapsedMs >= intervalMs) {
+		if (elapsedMs - intervalMs < DAY_MS) {
+			return `${mt('status.hoursAgo', { hours: hoursAgo })} (${mt('status.overdue')})`;
+		}
+		return `${mt('status.daysAgo', { days: daysAgo })} (${mt('status.overdue')})`;
+	}
+
+	const remainingMs = intervalMs - elapsedMs;
+	if (remainingMs < DAY_MS) {
+		const remainingHours = Math.max(1, Math.ceil(remainingMs / HOUR_MS));
+		return mt('status.inHours', { hours: remainingHours });
+	}
+
+	const remainingDays = Math.ceil(remainingMs / DAY_MS);
+	return mt('status.inDays', { days: remainingDays });
+}
+
 function publishState(plant: Plant) {
 	if (!client?.connected) return;
 
@@ -274,21 +303,11 @@ function publishState(plant: Plant) {
 	const fertilizingIntervalDays = getSeasonalInterval(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 
 	// Watering state
-	const waterDays = daysAgo(plant.lastWatered);
-	const waterState = waterDays === null
-		? mt('watering.never')
-		: waterDays >= wateringIntervalDays
-			? mt('watering.overdue')
-			: mt('watering.ok', { days: wateringIntervalDays - waterDays });
+	const waterState = getActionStatus(plant.lastWatered, wateringIntervalDays, 'watering.never');
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState, { retain: true });
 
 	// Fertilizing state
-	const fertDays = daysAgo(plant.lastFertilized);
-	const fertState = fertDays === null
-		? mt('fertilizing.never')
-		: fertDays >= fertilizingIntervalDays
-			? mt('fertilizing.overdue')
-			: mt('fertilizing.ok', { days: fertilizingIntervalDays - fertDays });
+	const fertState = getActionStatus(plant.lastFertilized, fertilizingIntervalDays, 'fertilizing.never');
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/fertilizing`, fertState, { retain: true });
 
 	// Repotting state

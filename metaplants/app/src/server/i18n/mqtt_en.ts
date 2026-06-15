@@ -2,6 +2,11 @@ export const mqtt_en = {
 	status: {
 		online: 'online',
 		offline: 'offline',
+		overdue: 'overdue!',
+		daysAgo: '{days}d ago',
+		hoursAgo: '{hours}h ago',
+		inDays: 'in {days}d',
+		inHours: 'in {hours}h',
 	},
 	watering: {
 		never: 'never watered',
