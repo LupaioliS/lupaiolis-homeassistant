@@ -98,7 +98,7 @@ function handleCommand(topic: string, message: Buffer) {
 	}
 
 	const notes = message.toString() || mt('actions.triggered_from_ha');
-	const result = store.addAction(plant.id, action, notes);
+	const result = store.addAction(plant.id, action, { notes });
 	if (result) {
 		const updated = store.getPlant(plant.id);
 		if (updated) {

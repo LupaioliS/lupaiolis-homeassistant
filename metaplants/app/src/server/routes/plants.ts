@@ -171,9 +171,9 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	// Log action (water/fertilize/repot/prune)
-	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string } }>('/plants/:id/actions', async (request, reply) => {
-		const { type, notes } = request.body;
-		const action = store.addAction(request.params.id, type, notes);
+	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string; amountMl?: number; amountGrams?: number; potSizeCm?: number } }>('/plants/:id/actions', async (request, reply) => {
+		const { type, notes, amountMl, amountGrams, potSizeCm } = request.body;
+		const action = store.addAction(request.params.id, type, { notes, amountMl, amountGrams, potSizeCm });
 		if (!action) return reply.status(404).send({ error: 'Plant not found' });
 		const plant = store.getPlant(request.params.id);
 		if (plant) {
