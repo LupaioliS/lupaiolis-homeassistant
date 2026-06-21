@@ -258,6 +258,64 @@ header h1 {
   margin-bottom: 16px;
 }
 
+/* Action amount dialog (water / fertilize / repot) */
+.action-dialog .slider-value {
+  text-align: center;
+  font-weight: 600;
+  color: var(--green-700);
+  margin-top: 8px;
+}
+
+.action-dialog input[type='range'] {
+  width: 100%;
+}
+
+.droplet-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 16px 0;
+}
+
+.droplet-slider {
+  position: relative;
+  width: 100px;
+  height: 110px;
+  clip-path: path('M50 0 C50 0 95 65 95 82 C95 98 75 110 50 110 C25 110 5 98 5 82 C5 65 50 0 50 0 Z');
+  background: #e0f2fe;
+  overflow: hidden;
+}
+
+.droplet-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, #1d4ed8, #60a5fa);
+  transition: height 0.1s ease;
+}
+
+.droplet-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  -webkit-appearance: slider-vertical;
+}
+
+.droplet-max-hint {
+  color: #64748b;
+  text-align: center;
+  font-size: 0.75rem;
+  max-width: 220px;
+}
+
 .form-group {
   margin-bottom: 14px;
 }

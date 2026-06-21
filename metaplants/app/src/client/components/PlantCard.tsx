@@ -4,12 +4,13 @@ import { t } from '../i18n';
 import { api } from '../api';
 import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
 import { withBase } from '../basePath';
+import { ActionDialog, type ActionDialogType } from './ActionDialog';
 
 interface PlantCardProps {
 	plant: Plant;
 	readings?: PlantReadings;
-	onWater: () => void | Promise<void>;
-	onFertilize: () => void | Promise<void>;
+	onWater: (amountMl: number) => void | Promise<void>;
+	onFertilize: (amountGrams: number) => void | Promise<void>;
 	onEdit: () => void;
 	onRefresh: () => void;
 	onPatch: (plant: Plant) => void;
@@ -134,6 +135,7 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 	const [productReason, setProductReason] = useState('');
 	const [waterSuggestion, setWaterSuggestion] = useState<number | null>(null);
 	const [fertSuggestion, setFertSuggestion] = useState<number | null>(null);
+	const [activeDialog, setActiveDialog] = useState<ActionDialogType | null>(null);
 
 	const season = getCurrentSeason();
 	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
@@ -166,9 +168,16 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 		api.updatePlant(plant.id, { fertilizingSchedule }).catch(onRefresh);
 	};
 
-	const handleRepot = async () => {
-		onPatch({ ...plant, lastRepotted: new Date().toISOString() });
-		api.logAction(plant.id, 'repot').catch(onRefresh);
+	const handleRepot = async (potSizeCm: number) => {
+		onPatch({ ...plant, lastRepotted: new Date().toISOString(), potSizeCm });
+		api.logAction(plant.id, 'repot', { potSizeCm }).catch(onRefresh);
+	};
+
+	const handleDialogConfirm = async (value: number) => {
+		if (activeDialog === 'water') await onWater(value);
+		else if (activeDialog === 'fertilize') await onFertilize(value);
+		else if (activeDialog === 'repot') await handleRepot(value);
+		setActiveDialog(null);
 	};
 
 	const handlePrune = async () => {
@@ -339,9 +348,9 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 			)}
 
 			<div className="actions">
-				<ActionButton disabled={isDoneToday(plant.lastWatered)} className="btn btn-water" onClick={onWater} label={`💧 ${t('actions.water')}`} />
-				<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={onFertilize} label={`🧪 ${t('actions.fertilize')}`} />
-				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={handleRepot} label={`🪴 ${t('actions.repot')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastWatered)} className="btn btn-water" onClick={() => setActiveDialog('water')} label={`💧 ${t('actions.water')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={() => setActiveDialog('fertilize')} label={`🧪 ${t('actions.fertilize')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={() => setActiveDialog('repot')} label={`🪴 ${t('actions.repot')}`} />
 				<ActionButton disabled={isDoneToday(plant.lastPruned)} className="btn btn-secondary" onClick={handlePrune} label={`✂️ ${t('actions.prune')}`} />
 				<button className="btn btn-secondary" onClick={onEdit}>✏️</button>
 			</div>
@@ -427,6 +436,15 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 						</div>
 					)}
 				</div>
+			)}
+
+			{activeDialog && (
+				<ActionDialog
+					type={activeDialog}
+					plant={plant}
+					onConfirm={handleDialogConfirm}
+					onClose={() => setActiveDialog(null)}
+				/>
 			)}
 		</div>
 	);

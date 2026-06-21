@@ -41,6 +41,11 @@ export const it = {
 		fertilize: 'Fertilizza',
 		repot: 'Rinvasa',
 		prune: 'Potatura',
+		waterTitle: 'Quanta acqua?',
+		fertilizeTitle: 'Quanto fertilizzante?',
+		repotTitle: 'Nuova dimensione vaso',
+		waterMax: 'Max — l\'acqua esce dal fondo',
+		confirm: 'Conferma',
 	},
 	status: {
 		neverDone: 'Mai fatto',

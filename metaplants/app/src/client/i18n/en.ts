@@ -41,6 +41,11 @@ export const en = {
 		fertilize: 'Fertilize',
 		repot: 'Repot',
 		prune: 'Prune',
+		waterTitle: 'How much water?',
+		fertilizeTitle: 'How much fertilizer?',
+		repotTitle: 'New pot size',
+		waterMax: 'Max — water exits from the bottom',
+		confirm: 'Confirm',
 	},
 	status: {
 		neverDone: 'Never done',
