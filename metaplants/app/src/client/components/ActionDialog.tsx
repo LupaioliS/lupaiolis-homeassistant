@@ -7,6 +7,7 @@ export type ActionDialogType = 'water' | 'fertilize' | 'repot';
 interface ActionDialogProps {
 	type: ActionDialogType;
 	plant: Plant;
+	defaultValue?: number;
 	onConfirm: (value: number) => void | Promise<void>;
 	onClose: () => void;
 }
@@ -18,12 +19,12 @@ const FERTILIZE_DEFAULT_G = 5;
 const POT_MIN_CM = 5;
 const POT_MAX_CM = 60;
 
-export function ActionDialog({ type, plant, onConfirm, onClose }: ActionDialogProps) {
-	const initial =
+export function ActionDialog({ type, plant, defaultValue, onConfirm, onClose }: ActionDialogProps) {
+	const fallback =
 		type === 'water' ? WATER_DEFAULT_ML
 		: type === 'fertilize' ? FERTILIZE_DEFAULT_G
-		: Math.min(POT_MAX_CM, (plant.potSizeCm ?? 12) + 2);
-	const [value, setValue] = useState(initial);
+		: Math.min(POT_MAX_CM, plant.potSizeCm ?? 12);
+	const [value, setValue] = useState(defaultValue ?? fallback);
 	const [submitting, setSubmitting] = useState(false);
 
 	const handleConfirm = async () => {

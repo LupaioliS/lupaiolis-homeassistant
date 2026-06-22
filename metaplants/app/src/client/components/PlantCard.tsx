@@ -136,6 +136,9 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 	const [waterSuggestion, setWaterSuggestion] = useState<number | null>(null);
 	const [fertSuggestion, setFertSuggestion] = useState<number | null>(null);
 	const [activeDialog, setActiveDialog] = useState<ActionDialogType | null>(null);
+	const [lastWaterMl, setLastWaterMl] = useState<number | null>(null);
+	const [lastFertGrams, setLastFertGrams] = useState<number | null>(null);
+	const [lastPotSizeCm, setLastPotSizeCm] = useState<number | null>(null);
 
 	const season = getCurrentSeason();
 	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
@@ -150,9 +153,17 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 				const fertSuggestions = computeSeasonalSuggestions(actions, 'fertilize');
 				setWaterSuggestion(waterSuggestions[season] ?? null);
 				setFertSuggestion(fertSuggestions[season] ?? null);
+
+				const lastOfType = (type: string, field: 'amountMl' | 'amountGrams' | 'potSizeCm') => {
+					const match = [...actions].reverse().find((a) => a.type === type && a[field] != null);
+					return match ? (match[field] as number) : null;
+				};
+				setLastWaterMl(lastOfType('water', 'amountMl'));
+				setLastFertGrams(lastOfType('fertilize', 'amountGrams'));
+				setLastPotSizeCm(lastOfType('repot', 'potSizeCm'));
 			})
 			.catch(() => { /* no suggestions without history */ });
-	}, [plant.id, season, plant.lastWatered, plant.lastFertilized]);
+	}, [plant.id, season, plant.lastWatered, plant.lastFertilized, plant.lastRepotted]);
 
 	const applyWaterSuggestion = () => {
 		if (waterSuggestion == null) return;
@@ -442,6 +453,11 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 				<ActionDialog
 					type={activeDialog}
 					plant={plant}
+					defaultValue={
+						activeDialog === 'water' ? lastWaterMl ?? undefined
+						: activeDialog === 'fertilize' ? lastFertGrams ?? undefined
+						: lastPotSizeCm ?? plant.potSizeCm ?? undefined
+					}
 					onConfirm={handleDialogConfirm}
 					onClose={() => setActiveDialog(null)}
 				/>
