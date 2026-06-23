@@ -59,6 +59,7 @@ export interface Plant {
 	lastPruned?: string;
 	purchaseDate?: string;
 	recommendedFertilizer?: string;
+	potSizeCm?: number;
 	wateringSchedule?: SeasonalSchedule;
 	fertilizingSchedule?: SeasonalSchedule;
 	healthIssues?: HealthIssue[];
@@ -75,4 +76,14 @@ export interface PlantAction {
 	type: 'water' | 'fertilize' | 'repot' | 'prune';
 	date: string;
 	notes?: string;
+	amountMl?: number;
+	amountGrams?: number;
+	potSizeCm?: number;
+}
+
+export interface PlantActionOptions {
+	notes?: string;
+	amountMl?: number;
+	amountGrams?: number;
+	potSizeCm?: number;
 }

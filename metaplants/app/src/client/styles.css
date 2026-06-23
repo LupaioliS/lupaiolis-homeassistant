@@ -63,7 +63,7 @@ header h1 {
 }
 
 .plant-card:hover {
-  transform: translateY(-2px);
+  /* transform: translateY(-2px); */
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
 }
 
@@ -258,6 +258,130 @@ header h1 {
   margin-bottom: 16px;
 }
 
+/* Action amount dialog (water / fertilize / repot) */
+.action-dialog .slider-value {
+  text-align: center;
+  font-weight: 600;
+  color: var(--green-700);
+  margin-top: 8px;
+}
+
+.action-dialog input[type='range'] {
+  width: 100%;
+}
+
+.droplet-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin: 16px 0;
+}
+
+.droplet-slider {
+  position: relative;
+  width: 100px;
+  height: 110px;
+  clip-path: path('M50 0 C50 0 95 65 95 82 C95 98 75 110 50 110 C25 110 5 98 5 82 C5 65 50 0 50 0 Z');
+  background: #e0f2fe;
+  overflow: hidden;
+}
+
+.droplet-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, #1d4ed8, #60a5fa);
+  transition: height 0.1s ease;
+}
+
+.droplet-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  writing-mode: vertical-lr;
+  direction: rtl;
+  -webkit-appearance: slider-vertical;
+}
+
+.droplet-max-hint {
+  color: #64748b;
+  text-align: center;
+  font-size: 0.75rem;
+  max-width: 220px;
+}
+
+/* Fertilizer bag slider */
+.bag-slider {
+  position: relative;
+  width: 100px;
+  height: 120px;
+  clip-path: path('M30 18 L70 18 L78 30 Q88 45 88 65 L88 100 Q88 116 72 116 L28 116 Q12 116 12 100 L12 65 Q12 45 22 30 Z');
+  background: #fef3c7;
+  overflow: hidden;
+}
+
+.bag-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(to top, #92400e, #d97706);
+  transition: height 0.1s ease;
+}
+
+.bag-knot {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 24px;
+  height: 14px;
+  background: #fef3c7;
+  border-radius: 0 0 8px 8px;
+}
+
+/* Repot: pot that grows with the slider value */
+.pot-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.pot-slider-wrap input[type='range'] {
+  width: 100%;
+}
+
+.pot-visual {
+  width: 90px;
+  height: 78px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform 0.1s ease;
+}
+
+.pot-rim {
+  width: 90px;
+  height: 12px;
+  background: var(--green-700);
+  border-radius: 3px;
+}
+
+.pot-body {
+  width: 70px;
+  height: 60px;
+  background: linear-gradient(to bottom, #c2703d, #9a5326);
+  clip-path: polygon(8% 0%, 92% 0%, 80% 100%, 20% 100%);
+}
+
 .form-group {
   margin-bottom: 14px;
 }
@@ -291,6 +415,10 @@ header h1 {
   gap: 8px;
   justify-content: flex-end;
   margin-top: 20px;
+}
+
+.form-actions .btn-danger {
+  margin-right: auto;
 }
 
 .empty-state {
@@ -455,6 +583,7 @@ header h1 {
 
 .suggestion-btn {
   margin-top: 6px;
+  margin-bottom: 6px;
   width: 100%;
   padding: 4px 6px;
   font-size: 0.78rem;

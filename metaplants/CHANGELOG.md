@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.0
+
+- Watering, fertilizing and repotting now open a dialog asking how much before logging the action: a droplet-shaped slider for water (ml), a fertilizer-bag-shaped slider (g), and a pot-size slider (cm) that visibly grows as you drag it
+- Each dialog defaults to the last amount used for that plant instead of a generic value
+- Repotting now stores the new pot size on the plant
+
 ## 1.4.0
 
 - Link plants to Home Assistant temperature and/or humidity sensors and see their live values on the plant card; readings refresh every minute, immediately on save, and on page load (requires `homeassistant_api`, already enabled)

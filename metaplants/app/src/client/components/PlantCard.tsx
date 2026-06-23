@@ -1,17 +1,17 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, Season, SeasonalSchedule, PlantReadings } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
-import { getCurrentSeason } from '../season';
+import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
 import { withBase } from '../basePath';
+import { ActionDialog, type ActionDialogType } from './ActionDialog';
 
 interface PlantCardProps {
 	plant: Plant;
 	readings?: PlantReadings;
-	onWater: () => void | Promise<void>;
-	onFertilize: () => void | Promise<void>;
+	onWater: (amountMl: number) => void | Promise<void>;
+	onFertilize: (amountGrams: number) => void | Promise<void>;
 	onEdit: () => void;
-	onDelete: () => void;
 	onRefresh: () => void;
 	onPatch: (plant: Plant) => void;
 }
@@ -79,6 +79,8 @@ function isDoneToday(dateStr?: string): boolean {
 	return dateStr.split('T')[0] === today;
 }
 
+const defaultSchedule: SeasonalSchedule = { spring: 3, summer: 2, autumn: 5, winter: 7 };
+
 const pestOptions: PestType[] = ['aphids', 'spider_mites', 'mealybugs', 'scale', 'whiteflies', 'thrips', 'fungus_gnats', 'slugs'];
 const diseaseOptions: DiseaseType[] = ['powdery_mildew', 'root_rot', 'leaf_spot', 'botrytis', 'rust', 'black_spot', 'downy_mildew'];
 const fungusOptions: FungusType[] = ['fusarium', 'pythium', 'phytophthora', 'alternaria', 'cercospora', 'anthracnose'];
@@ -122,7 +124,7 @@ function ActionButton({ disabled: initialDisabled, className, onClick, label }: 
 	);
 }
 
-export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDelete, onRefresh, onPatch }: PlantCardProps) {
+export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRefresh, onPatch }: PlantCardProps) {
 	const [showHealth, setShowHealth] = useState(false);
 	const [showProducts, setShowProducts] = useState(false);
 	const [issueType, setIssueType] = useState<HealthIssueType>('pest');
@@ -131,6 +133,12 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 	const [issueUploading, setIssueUploading] = useState(false);
 	const [productName, setProductName] = useState('');
 	const [productReason, setProductReason] = useState('');
+	const [waterSuggestion, setWaterSuggestion] = useState<number | null>(null);
+	const [fertSuggestion, setFertSuggestion] = useState<number | null>(null);
+	const [activeDialog, setActiveDialog] = useState<ActionDialogType | null>(null);
+	const [lastWaterMl, setLastWaterMl] = useState<number | null>(null);
+	const [lastFertGrams, setLastFertGrams] = useState<number | null>(null);
+	const [lastPotSizeCm, setLastPotSizeCm] = useState<number | null>(null);
 
 	const season = getCurrentSeason();
 	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
@@ -138,9 +146,49 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 	const waterStatus = getStatus(plant.lastWatered, waterIntervalDays);
 	const fertStatus = getStatus(plant.lastFertilized, fertIntervalDays);
 
-	const handleRepot = async () => {
-		onPatch({ ...plant, lastRepotted: new Date().toISOString() });
-		api.logAction(plant.id, 'repot').catch(onRefresh);
+	useEffect(() => {
+		api.getActions(plant.id)
+			.then((actions) => {
+				const waterSuggestions = computeSeasonalSuggestions(actions, 'water');
+				const fertSuggestions = computeSeasonalSuggestions(actions, 'fertilize');
+				setWaterSuggestion(waterSuggestions[season] ?? null);
+				setFertSuggestion(fertSuggestions[season] ?? null);
+
+				const lastOfType = (type: string, field: 'amountMl' | 'amountGrams' | 'potSizeCm') => {
+					const match = [...actions].reverse().find((a) => a.type === type && a[field] != null);
+					return match ? (match[field] as number) : null;
+				};
+				setLastWaterMl(lastOfType('water', 'amountMl'));
+				setLastFertGrams(lastOfType('fertilize', 'amountGrams'));
+				setLastPotSizeCm(lastOfType('repot', 'potSizeCm'));
+			})
+			.catch(() => { /* no suggestions without history */ });
+	}, [plant.id, season, plant.lastWatered, plant.lastFertilized, plant.lastRepotted]);
+
+	const applyWaterSuggestion = () => {
+		if (waterSuggestion == null) return;
+		const wateringSchedule = { ...(plant.wateringSchedule ?? defaultSchedule), [season]: waterSuggestion };
+		onPatch({ ...plant, wateringSchedule });
+		api.updatePlant(plant.id, { wateringSchedule }).catch(onRefresh);
+	};
+
+	const applyFertSuggestion = () => {
+		if (fertSuggestion == null) return;
+		const fertilizingSchedule = { ...(plant.fertilizingSchedule ?? defaultSchedule), [season]: fertSuggestion };
+		onPatch({ ...plant, fertilizingSchedule });
+		api.updatePlant(plant.id, { fertilizingSchedule }).catch(onRefresh);
+	};
+
+	const handleRepot = async (potSizeCm: number) => {
+		onPatch({ ...plant, lastRepotted: new Date().toISOString(), potSizeCm });
+		api.logAction(plant.id, 'repot', { potSizeCm }).catch(onRefresh);
+	};
+
+	const handleDialogConfirm = async (value: number) => {
+		if (activeDialog === 'water') await onWater(value);
+		else if (activeDialog === 'fertilize') await onFertilize(value);
+		else if (activeDialog === 'repot') await handleRepot(value);
+		setActiveDialog(null);
 	};
 
 	const handlePrune = async () => {
@@ -269,6 +317,27 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 				</div>
 			)}
 
+			{waterSuggestion != null && waterSuggestion !== plant.wateringSchedule?.[season] && (
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm suggestion-btn"
+					title={t('schedule.suggested')}
+					onClick={applyWaterSuggestion}
+				>
+					{t('schedule.newSuggestionWater').replace('{season}', t(`seasons.${season}`)).replace('{days}', String(waterSuggestion))}
+				</button>
+			)}
+			{fertSuggestion != null && fertSuggestion !== plant.fertilizingSchedule?.[season] && (
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm suggestion-btn"
+					title={t('schedule.suggested')}
+					onClick={applyFertSuggestion}
+				>
+					{t('schedule.newSuggestionFertilize').replace('{season}', t(`seasons.${season}`)).replace('{days}', String(fertSuggestion))}
+				</button>
+			)}
+
 			{plant.recommendedFertilizer && (
 				<div className="info-row">🌿 {t('plant.recommendedFertilizer')}: {plant.recommendedFertilizer}</div>
 			)}
@@ -290,12 +359,11 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 			)}
 
 			<div className="actions">
-				<ActionButton disabled={isDoneToday(plant.lastWatered)} className="btn btn-water" onClick={onWater} label={`💧 ${t('actions.water')}`} />
-				<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={onFertilize} label={`🧪 ${t('actions.fertilize')}`} />
-				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={handleRepot} label={`🪴 ${t('actions.repot')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastWatered)} className="btn btn-water" onClick={() => setActiveDialog('water')} label={`💧 ${t('actions.water')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={() => setActiveDialog('fertilize')} label={`🧪 ${t('actions.fertilize')}`} />
+				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={() => setActiveDialog('repot')} label={`🪴 ${t('actions.repot')}`} />
 				<ActionButton disabled={isDoneToday(plant.lastPruned)} className="btn btn-secondary" onClick={handlePrune} label={`✂️ ${t('actions.prune')}`} />
 				<button className="btn btn-secondary" onClick={onEdit}>✏️</button>
-				<button className="btn btn-danger" onClick={onDelete}>🗑️</button>
 			</div>
 
 			<div className="card-expandable">
@@ -379,6 +447,20 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 						</div>
 					)}
 				</div>
+			)}
+
+			{activeDialog && (
+				<ActionDialog
+					type={activeDialog}
+					plant={plant}
+					defaultValue={
+						activeDialog === 'water' ? lastWaterMl ?? undefined
+						: activeDialog === 'fertilize' ? lastFertGrams ?? undefined
+						: lastPotSizeCm ?? plant.potSizeCm ?? undefined
+					}
+					onConfirm={handleDialogConfirm}
+					onClose={() => setActiveDialog(null)}
+				/>
 			)}
 		</div>
 	);

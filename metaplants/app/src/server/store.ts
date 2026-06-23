@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import type { Plant, PlantAction, HealthIssue, ProductUsage } from '../shared/types';
+import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage } from '../shared/types';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '../../data'));
 const PLANTS_FILE = path.join(DATA_DIR, 'plants.json');
@@ -123,7 +123,7 @@ export const store = {
 		return removed;
 	},
 
-	addAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', notes?: string): PlantAction | undefined => {
+	addAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', options?: PlantActionOptions): PlantAction | undefined => {
 		const plants = readPlants();
 		const plantIndex = plants.findIndex((p) => p.id === plantId);
 		if (plantIndex === -1) return undefined;
@@ -133,7 +133,10 @@ export const store = {
 			plantId,
 			type,
 			date: new Date().toISOString(),
-			notes,
+			notes: options?.notes,
+			amountMl: options?.amountMl,
+			amountGrams: options?.amountGrams,
+			potSizeCm: options?.potSizeCm,
 		};
 
 		switch (type) {
@@ -145,6 +148,7 @@ export const store = {
 				break;
 			case 'repot':
 				plants[plantIndex].lastRepotted = action.date;
+				if (options?.potSizeCm != null) plants[plantIndex].potSizeCm = options.potSizeCm;
 				break;
 			case 'prune':
 				plants[plantIndex].lastPruned = action.date;

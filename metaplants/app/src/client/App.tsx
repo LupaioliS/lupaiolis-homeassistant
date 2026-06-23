@@ -62,22 +62,23 @@ export function App() {
 		setPlants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
 	}, []);
 
-	const handleWater = async (id: string) => {
+	const handleWater = async (id: string, amountMl: number) => {
 		const now = new Date().toISOString();
 		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastWatered: now } : p)));
-		api.logAction(id, 'water').catch(loadPlants);
+		api.logAction(id, 'water', { amountMl }).catch(loadPlants);
 	};
 
-	const handleFertilize = async (id: string) => {
+	const handleFertilize = async (id: string, amountGrams: number) => {
 		const now = new Date().toISOString();
 		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastFertilized: now } : p)));
-		api.logAction(id, 'fertilize').catch(loadPlants);
+		api.logAction(id, 'fertilize', { amountGrams }).catch(loadPlants);
 	};
 
 	const handleDelete = async (id: string) => {
 		if (!confirm(t('plant.confirmDelete'))) return;
 		setPlants((prev) => prev.filter((p) => p.id !== id));
 		api.deletePlant(id).catch(loadPlants);
+		handleFormClose();
 	};
 
 	const handleEdit = (plant: Plant) => {
@@ -131,10 +132,9 @@ export function App() {
 							key={plant.id}
 							plant={plant}
 							readings={readings[plant.id]}
-							onWater={() => handleWater(plant.id)}
-							onFertilize={() => handleFertilize(plant.id)}
+							onWater={(amountMl) => handleWater(plant.id, amountMl)}
+							onFertilize={(amountGrams) => handleFertilize(plant.id, amountGrams)}
 							onEdit={() => handleEdit(plant)}
-							onDelete={() => handleDelete(plant.id)}
 							onRefresh={loadPlants}
 							onPatch={patchPlant}
 						/>
@@ -147,6 +147,7 @@ export function App() {
 					plant={editingPlant}
 					onSubmit={handleFormSubmit}
 					onClose={handleFormClose}
+					onDelete={editingPlant ? () => handleDelete(editingPlant.id) : undefined}
 				/>
 			)}
 		</div>

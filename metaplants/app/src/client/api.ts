@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, HealthIssue, ProductUsage, PlantReadings } from '../shared/types';
+import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage, PlantReadings } from '../shared/types';
 import { BASE_PATH } from './basePath';
 
 const BASE = `${BASE_PATH}/api`;
@@ -25,10 +25,10 @@ export const api = {
 		request<Plant>(`/plants/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
 	deletePlant: (id: string) =>
 		request<{ success: boolean }>(`/plants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-	logAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', notes?: string) =>
+	logAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', options?: PlantActionOptions) =>
 		request<PlantAction>(`/plants/${encodeURIComponent(plantId)}/actions`, {
 			method: 'POST',
-			body: JSON.stringify({ type, notes }),
+			body: JSON.stringify({ type, ...options }),
 		}),
 	getActions: (plantId: string) =>
 		request<PlantAction[]>(`/plants/${encodeURIComponent(plantId)}/actions`),

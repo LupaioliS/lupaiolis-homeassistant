@@ -9,11 +9,12 @@ interface PlantFormProps {
 	plant: Plant | null;
 	onSubmit: (data: Omit<Plant, 'id' | 'createdAt'>) => void;
 	onClose: () => void;
+	onDelete?: () => void;
 }
 
 const defaultSchedule: SeasonalSchedule = { spring: 3, summer: 2, autumn: 5, winter: 7 };
 
-export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
+export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps) {
 	const [name, setName] = useState(plant?.name ?? '');
 	const [species, setSpecies] = useState(plant?.species ?? '');
 	const [location, setLocation] = useState(plant?.location ?? '');
@@ -203,6 +204,9 @@ export function PlantForm({ plant, onSubmit, onClose }: PlantFormProps) {
 						<textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} placeholder="Note opzionali..." />
 					</div>
 					<div className="form-actions">
+						{plant && onDelete && (
+							<button type="button" className="btn btn-danger" onClick={onDelete}>🗑️ {t('plant.delete')}</button>
+						)}
 						<button type="button" className="btn btn-secondary" onClick={onClose}>{t('plant.cancel')}</button>
 						<button type="submit" className="btn btn-primary">{plant ? t('plant.save') : t('plant.add')}</button>
 					</div>
