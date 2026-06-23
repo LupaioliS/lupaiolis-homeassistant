@@ -72,6 +72,12 @@ header h1 {
   margin-bottom: 4px;
 }
 
+.plant-card h3 .nickname {
+  color: var(--green-600);
+  font-weight: normal;
+  font-style: italic;
+}
+
 .plant-card .species {
   color: var(--green-600);
   font-style: italic;

@@ -8,6 +8,7 @@ export const en = {
 	},
 	plant: {
 		name: 'Name',
+		nickname: 'Nickname',
 		species: 'Species',
 		location: 'Location',
 		wateringInterval: 'Watering interval (days)',

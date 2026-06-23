@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.0
+
+- Add an optional nickname field so plants can have a cute pet name in addition to their regular name, shown next to the name on the plant card
+
 ## 1.5.0
 
 - Watering, fertilizing and repotting now open a dialog asking how much before logging the action: a droplet-shaped slider for water (ml), a fertilizer-bag-shaped slider (g), and a pot-size slider (cm) that visibly grows as you drag it

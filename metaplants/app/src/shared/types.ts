@@ -46,6 +46,7 @@ export interface PlantReadings {
 export interface Plant {
 	id: string;
 	name: string;
+	nickname?: string;
 	species: string;
 	location: string;
 	imageUrl?: string;
