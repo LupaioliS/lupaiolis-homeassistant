@@ -293,6 +293,10 @@ header h1 {
   margin-top: 20px;
 }
 
+.form-actions .btn-danger {
+  margin-right: auto;
+}
+
 .empty-state {
   text-align: center;
   padding: 60px 20px;
