@@ -62,9 +62,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 
 	// Create plant
 	fastify.post<{ 
-		Body: { 
-			name: string; 
-			species: string; 
+		Body: {
+			name: string;
+			nickname?: string;
+			species: string;
 			location: string; 
 			wateringSchedule?: SeasonalSchedule; 
 			fertilizingSchedule?: SeasonalSchedule; 
@@ -81,6 +82,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	}>('/plants', async (request) => {
 		const {
 			name,
+			nickname,
 			species,
 			location,
 			wateringSchedule,
@@ -102,6 +104,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 
 		const plant = store.createPlant({
 			name,
+			nickname,
 			species,
 			location,
 			wateringSchedule,
@@ -127,9 +130,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		Params: { 
 			id: string 
 		}; 
-		Body: Partial<{ 
-			name: string; 
-			species: string; 
+		Body: Partial<{
+			name: string;
+			nickname: string;
+			species: string;
 			location: string; 
 			wateringSchedule: SeasonalSchedule; 
 			fertilizingSchedule: SeasonalSchedule; 

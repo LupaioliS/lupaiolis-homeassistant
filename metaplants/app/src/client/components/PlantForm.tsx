@@ -16,6 +16,7 @@ const defaultSchedule: SeasonalSchedule = { spring: 3, summer: 2, autumn: 5, win
 
 export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps) {
 	const [name, setName] = useState(plant?.name ?? '');
+	const [nickname, setNickname] = useState(plant?.nickname ?? '');
 	const [species, setSpecies] = useState(plant?.species ?? '');
 	const [location, setLocation] = useState(plant?.location ?? '');
 	const [purchaseDate, setPurchaseDate] = useState(plant?.purchaseDate ?? '');
@@ -72,7 +73,7 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 		e.preventDefault();
 		const season = getCurrentSeason();
 		onSubmit({
-			name, species, location,
+			name, nickname: nickname || undefined, species, location,
 			imageUrl: imageUrl || undefined,
 			purchaseDate: purchaseDate || undefined,
 			lastRepotted: lastRepotted || undefined,
@@ -118,6 +119,10 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 					<div className="form-group">
 						<label>{t('plant.name')}</label>
 						<input value={name} onChange={(e) => setName(e.target.value)} required placeholder="es. Monstera" />
+					</div>
+					<div className="form-group">
+						<label>{t('plant.nickname')}</label>
+						<input value={nickname} onChange={(e) => setNickname(e.target.value)} placeholder="es. Nonna Carla" />
 					</div>
 					<div className="form-group">
 						<label>{t('plant.species')}</label>

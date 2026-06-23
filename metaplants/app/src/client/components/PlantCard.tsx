@@ -280,7 +280,7 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 			{plant.imageUrl && (
 				<img className="plant-photo" src={withBase(plant.imageUrl)} alt={plant.name} />
 			)}
-			<h3>{plant.name}</h3>
+			<h3>{plant.name}{plant.nickname && <span className="nickname"> "{plant.nickname}"</span>}</h3>
 			<div className="species">{plant.species}</div>
 			<div className="location">📍 {plant.location}</div>
 

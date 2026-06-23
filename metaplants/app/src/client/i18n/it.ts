@@ -8,6 +8,7 @@ export const it = {
 	},
 	plant: {
 		name: 'Nome',
+		nickname: 'Soprannome',
 		species: 'Specie',
 		location: 'Posizione',
 		wateringInterval: 'Intervallo irrigazione (giorni)',
