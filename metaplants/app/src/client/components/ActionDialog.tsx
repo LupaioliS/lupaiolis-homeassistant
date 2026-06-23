@@ -18,6 +18,8 @@ const FERTILIZE_MAX_G = 50;
 const FERTILIZE_DEFAULT_G = 5;
 const POT_MIN_CM = 5;
 const POT_MAX_CM = 60;
+const POT_MIN_SCALE = 0.55;
+const POT_MAX_SCALE = 1.5;
 
 export function ActionDialog({ type, plant, defaultValue, onConfirm, onClose }: ActionDialogProps) {
 	const fallback =
@@ -42,6 +44,8 @@ export function ActionDialog({ type, plant, defaultValue, onConfirm, onClose }: 
 		: t('actions.repotTitle');
 
 	const verticalRangeProps = { orient: 'vertical' } as React.InputHTMLAttributes<HTMLInputElement>;
+
+	const potScale = POT_MIN_SCALE + ((value - POT_MIN_CM) / (POT_MAX_CM - POT_MIN_CM)) * (POT_MAX_SCALE - POT_MIN_SCALE);
 
 	return (
 		<div className="modal-overlay" onClick={onClose}>
@@ -71,21 +75,31 @@ export function ActionDialog({ type, plant, defaultValue, onConfirm, onClose }: 
 				)}
 
 				{type === 'fertilize' && (
-					<div className="form-group">
-						<input
-							type="range"
-							min={0}
-							max={FERTILIZE_MAX_G}
-							step={1}
-							value={value}
-							onChange={(e) => setValue(Number(e.target.value))}
-						/>
+					<div className="droplet-slider-wrap">
+						<div className="bag-slider">
+							<div className="bag-fill" style={{ height: `${(value / FERTILIZE_MAX_G) * 100}%` }} />
+							<div className="bag-knot" />
+							<input
+								{...verticalRangeProps}
+								type="range"
+								className="droplet-input"
+								min={0}
+								max={FERTILIZE_MAX_G}
+								step={1}
+								value={value}
+								onChange={(e) => setValue(Number(e.target.value))}
+							/>
+						</div>
 						<div className="slider-value">{value} g</div>
 					</div>
 				)}
 
 				{type === 'repot' && (
-					<div className="form-group">
+					<div className="pot-slider-wrap">
+						<div className="pot-visual" style={{ transform: `scale(${potScale})` }}>
+							<div className="pot-rim" />
+							<div className="pot-body" />
+						</div>
 						<input
 							type="range"
 							min={POT_MIN_CM}
