@@ -150,7 +150,7 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 				setFertSuggestion(fertSuggestions[season] ?? null);
 			})
 			.catch(() => { /* no suggestions without history */ });
-	}, [plant.id, season]);
+	}, [plant.id, season, plant.lastWatered, plant.lastFertilized]);
 
 	const applyWaterSuggestion = () => {
 		if (waterSuggestion == null) return;
