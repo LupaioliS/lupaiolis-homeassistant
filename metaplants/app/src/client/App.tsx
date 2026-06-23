@@ -78,6 +78,7 @@ export function App() {
 		if (!confirm(t('plant.confirmDelete'))) return;
 		setPlants((prev) => prev.filter((p) => p.id !== id));
 		api.deletePlant(id).catch(loadPlants);
+		handleFormClose();
 	};
 
 	const handleEdit = (plant: Plant) => {
@@ -134,7 +135,6 @@ export function App() {
 							onWater={() => handleWater(plant.id)}
 							onFertilize={() => handleFertilize(plant.id)}
 							onEdit={() => handleEdit(plant)}
-							onDelete={() => handleDelete(plant.id)}
 							onRefresh={loadPlants}
 							onPatch={patchPlant}
 						/>
@@ -147,6 +147,7 @@ export function App() {
 					plant={editingPlant}
 					onSubmit={handleFormSubmit}
 					onClose={handleFormClose}
+					onDelete={editingPlant ? () => handleDelete(editingPlant.id) : undefined}
 				/>
 			)}
 		</div>

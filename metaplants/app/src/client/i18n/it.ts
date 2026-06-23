@@ -34,6 +34,7 @@ export const it = {
 		add: 'Aggiungi',
 		cancel: 'Annulla',
 		confirmDelete: 'Sei sicuro di voler eliminare questa pianta?',
+		delete: 'Elimina pianta',
 	},
 	actions: {
 		water: 'Acqua',
@@ -60,6 +61,8 @@ export const it = {
 		watering: 'Irrigazione (giorni)',
 		fertilizing: 'Concimazione (giorni)',
 		suggested: 'Suggerito dallo storico — clicca per applicare',
+		newSuggestionWater: '💡 Nuovo suggerimento per {season}: bagna ogni {days}g',
+		newSuggestionFertilize: '💡 Nuovo suggerimento per {season}: concima ogni {days}g',
 	},
 	health: {
 		title: 'Problemi di salute',

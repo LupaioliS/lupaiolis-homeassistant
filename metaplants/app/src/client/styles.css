@@ -455,6 +455,7 @@ header h1 {
 
 .suggestion-btn {
   margin-top: 6px;
+  margin-bottom: 6px;
   width: 100%;
   padding: 4px 6px;
   font-size: 0.78rem;

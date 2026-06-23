@@ -34,6 +34,7 @@ export const en = {
 		add: 'Add',
 		cancel: 'Cancel',
 		confirmDelete: 'Are you sure you want to delete this plant?',
+		delete: 'Delete plant',
 	},
 	actions: {
 		water: 'Water',
@@ -60,6 +61,8 @@ export const en = {
 		watering: 'Watering (days)',
 		fertilizing: 'Fertilizing (days)',
 		suggested: 'Suggested from history — click to apply',
+		newSuggestionWater: '💡 New suggestion for {season}: water every {days}d',
+		newSuggestionFertilize: '💡 New suggestion for {season}: fertilize every {days}d',
 	},
 	health: {
 		title: 'Health issues',

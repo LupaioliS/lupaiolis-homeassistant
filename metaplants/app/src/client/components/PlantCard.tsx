@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, Season, SeasonalSchedule, PlantReadings } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
-import { getCurrentSeason } from '../season';
+import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
 import { withBase } from '../basePath';
 
 interface PlantCardProps {
@@ -11,7 +11,6 @@ interface PlantCardProps {
 	onWater: () => void | Promise<void>;
 	onFertilize: () => void | Promise<void>;
 	onEdit: () => void;
-	onDelete: () => void;
 	onRefresh: () => void;
 	onPatch: (plant: Plant) => void;
 }
@@ -79,6 +78,8 @@ function isDoneToday(dateStr?: string): boolean {
 	return dateStr.split('T')[0] === today;
 }
 
+const defaultSchedule: SeasonalSchedule = { spring: 3, summer: 2, autumn: 5, winter: 7 };
+
 const pestOptions: PestType[] = ['aphids', 'spider_mites', 'mealybugs', 'scale', 'whiteflies', 'thrips', 'fungus_gnats', 'slugs'];
 const diseaseOptions: DiseaseType[] = ['powdery_mildew', 'root_rot', 'leaf_spot', 'botrytis', 'rust', 'black_spot', 'downy_mildew'];
 const fungusOptions: FungusType[] = ['fusarium', 'pythium', 'phytophthora', 'alternaria', 'cercospora', 'anthracnose'];
@@ -122,7 +123,7 @@ function ActionButton({ disabled: initialDisabled, className, onClick, label }: 
 	);
 }
 
-export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDelete, onRefresh, onPatch }: PlantCardProps) {
+export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRefresh, onPatch }: PlantCardProps) {
 	const [showHealth, setShowHealth] = useState(false);
 	const [showProducts, setShowProducts] = useState(false);
 	const [issueType, setIssueType] = useState<HealthIssueType>('pest');
@@ -131,12 +132,39 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 	const [issueUploading, setIssueUploading] = useState(false);
 	const [productName, setProductName] = useState('');
 	const [productReason, setProductReason] = useState('');
+	const [waterSuggestion, setWaterSuggestion] = useState<number | null>(null);
+	const [fertSuggestion, setFertSuggestion] = useState<number | null>(null);
 
 	const season = getCurrentSeason();
 	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
 	const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 	const waterStatus = getStatus(plant.lastWatered, waterIntervalDays);
 	const fertStatus = getStatus(plant.lastFertilized, fertIntervalDays);
+
+	useEffect(() => {
+		api.getActions(plant.id)
+			.then((actions) => {
+				const waterSuggestions = computeSeasonalSuggestions(actions, 'water');
+				const fertSuggestions = computeSeasonalSuggestions(actions, 'fertilize');
+				setWaterSuggestion(waterSuggestions[season] ?? null);
+				setFertSuggestion(fertSuggestions[season] ?? null);
+			})
+			.catch(() => { /* no suggestions without history */ });
+	}, [plant.id, season]);
+
+	const applyWaterSuggestion = () => {
+		if (waterSuggestion == null) return;
+		const wateringSchedule = { ...(plant.wateringSchedule ?? defaultSchedule), [season]: waterSuggestion };
+		onPatch({ ...plant, wateringSchedule });
+		api.updatePlant(plant.id, { wateringSchedule }).catch(onRefresh);
+	};
+
+	const applyFertSuggestion = () => {
+		if (fertSuggestion == null) return;
+		const fertilizingSchedule = { ...(plant.fertilizingSchedule ?? defaultSchedule), [season]: fertSuggestion };
+		onPatch({ ...plant, fertilizingSchedule });
+		api.updatePlant(plant.id, { fertilizingSchedule }).catch(onRefresh);
+	};
 
 	const handleRepot = async () => {
 		onPatch({ ...plant, lastRepotted: new Date().toISOString() });
@@ -269,6 +297,27 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 				</div>
 			)}
 
+			{waterSuggestion != null && waterSuggestion !== plant.wateringSchedule?.[season] && (
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm suggestion-btn"
+					title={t('schedule.suggested')}
+					onClick={applyWaterSuggestion}
+				>
+					{t('schedule.newSuggestionWater').replace('{season}', t(`seasons.${season}`)).replace('{days}', String(waterSuggestion))}
+				</button>
+			)}
+			{fertSuggestion != null && fertSuggestion !== plant.fertilizingSchedule?.[season] && (
+				<button
+					type="button"
+					className="btn btn-secondary btn-sm suggestion-btn"
+					title={t('schedule.suggested')}
+					onClick={applyFertSuggestion}
+				>
+					{t('schedule.newSuggestionFertilize').replace('{season}', t(`seasons.${season}`)).replace('{days}', String(fertSuggestion))}
+				</button>
+			)}
+
 			{plant.recommendedFertilizer && (
 				<div className="info-row">🌿 {t('plant.recommendedFertilizer')}: {plant.recommendedFertilizer}</div>
 			)}
@@ -295,7 +344,6 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onDel
 				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={handleRepot} label={`🪴 ${t('actions.repot')}`} />
 				<ActionButton disabled={isDoneToday(plant.lastPruned)} className="btn btn-secondary" onClick={handlePrune} label={`✂️ ${t('actions.prune')}`} />
 				<button className="btn btn-secondary" onClick={onEdit}>✏️</button>
-				<button className="btn btn-danger" onClick={onDelete}>🗑️</button>
 			</div>
 
 			<div className="card-expandable">
