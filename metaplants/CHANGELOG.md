@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.0
+
+- Added a "needs attention" banner above the plant list showing pills with icons for each plant that's overdue on watering/fertilizing or has an active health issue
+- Clicking a pill in the banner filters the plant list down to that plant
+- Added a search box to filter plants by name, nickname, species, or active health problem, and a sort dropdown (by name, species, or needs attention)
+- Added a clear (×) button on the search box to reset the filter and show all plants again
+
 ## 1.6.0
 
 - Add an optional nickname field so plants can have a cute pet name in addition to their regular name, shown next to the name on the plant card

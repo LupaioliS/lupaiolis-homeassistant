@@ -614,6 +614,110 @@ header h1 {
   line-height: 1;
 }
 
+/* Plant controls (search + sort) */
+.plant-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.plant-search-wrap {
+  position: relative;
+  flex: 1;
+}
+
+.plant-search {
+  width: 100%;
+  padding: 10px 36px 10px 12px;
+  border: 1px solid var(--green-200);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.plant-search:focus {
+  border-color: var(--green-500);
+}
+
+.plant-search-clear {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: none;
+  color: var(--green-600);
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.plant-search-clear:hover {
+  color: var(--green-800);
+}
+
+.plant-sort {
+  padding: 10px 12px;
+  border: 1px solid var(--green-200);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #fff;
+  color: var(--green-800);
+  outline: none;
+}
+
+/* Attention banner */
+.attention-banner {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin-bottom: 18px;
+  color: #92400e;
+  font-size: 0.95rem;
+}
+
+.attention-banner-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.attention-banner-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-banner-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 6px;
+  padding: 4px 12px;
+  color: #c2410c;
+}
+
+.attention-banner-pill {
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.attention-banner-pill:hover {
+  background: #fed7aa;
+  border-color: #fb923c;
+}
+
+.attention-banner-tag {
+  font-size: 0.95rem;
+}
+
 /* Photos */
 .plant-photo {
   width: 100%;

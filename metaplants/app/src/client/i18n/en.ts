@@ -5,6 +5,13 @@ export const en = {
 		addPlant: '+ Add Plant',
 		empty: 'No plants added yet',
 		currentSeason: 'Current season',
+		needsAttention: 'Needs attention',
+		searchPlaceholder: 'Search by name, nickname, species or problem...',
+		clearSearch: 'Clear search',
+		sortName: 'Sort by name',
+		sortSpecies: 'Sort by species',
+		sortAttention: 'Sort by needs attention',
+		noResults: 'No plants match your search',
 	},
 	plant: {
 		name: 'Name',

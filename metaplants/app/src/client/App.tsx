@@ -5,7 +5,12 @@ import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
+import { getIntervalForSeason, isOverdue } from './plantStatus';
 import { BASE_PATH } from './basePath';
+
+type SortOption = 'name' | 'species' | 'attention';
+
+const healthCategoryKey: Record<string, string> = { pest: 'pests', disease: 'diseases', fungus: 'fungi' };
 
 export function App() {
 	const [plants, setPlants] = useState<Plant[]>([]);
@@ -13,6 +18,8 @@ export function App() {
 	const [editingPlant, setEditingPlant] = useState<Plant | null>(null);
 	const [ready, setReady] = useState(false);
 	const [readings, setReadings] = useState<Record<string, PlantReadings>>({});
+	const [searchTerm, setSearchTerm] = useState('');
+	const [sortBy, setSortBy] = useState<SortOption>('name');
 
 	useEffect(() => {
 		initLocale().then(() => setReady(true));
@@ -103,6 +110,48 @@ export function App() {
 
 	const currentSeason = getCurrentSeason();
 
+	const getAttention = (plant: Plant) => {
+		const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, currentSeason, plant.wateringIntervalDays ?? 3);
+		const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, currentSeason, plant.fertilizingIntervalDays ?? 14);
+		const needsWater = isOverdue(plant.lastWatered, waterIntervalDays);
+		const needsFertilize = isOverdue(plant.lastFertilized, fertIntervalDays);
+		const activeIssueCount = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate).length;
+		return { needsWater, needsFertilize, activeIssueCount };
+	};
+
+	const attentionPlants = plants
+		.map((plant) => ({ plant, ...getAttention(plant) }))
+		.filter((p) => p.needsWater || p.needsFertilize || p.activeIssueCount > 0);
+
+	const term = searchTerm.trim().toLowerCase();
+	const visiblePlants = plants.filter((plant) => {
+		if (!term) return true;
+		const activeIssues = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate);
+		const issueMatch = activeIssues.some((issue) => {
+			const label = t(`${healthCategoryKey[issue.type]}.${issue.name}`).toLowerCase();
+			return issue.name.toLowerCase().includes(term) || label.includes(term);
+		});
+		return (
+			plant.name.toLowerCase().includes(term) ||
+			(plant.nickname ?? '').toLowerCase().includes(term) ||
+			plant.species.toLowerCase().includes(term) ||
+			issueMatch
+		);
+	});
+
+	const sortedPlants = [...visiblePlants].sort((a, b) => {
+		if (sortBy === 'species') return a.species.localeCompare(b.species);
+		if (sortBy === 'attention') {
+			const scoreOf = (p: Plant) => {
+				const { needsWater, needsFertilize, activeIssueCount } = getAttention(p);
+				return (needsWater ? 1 : 0) + (needsFertilize ? 1 : 0) + activeIssueCount;
+			};
+			const diff = scoreOf(b) - scoreOf(a);
+			if (diff !== 0) return diff;
+		}
+		return (a.nickname || a.name).localeCompare(b.nickname || b.name);
+	});
+
 	return (
 		<div className="app">
 			<header>
@@ -121,13 +170,71 @@ export function App() {
 				<span>{t('app.currentSeason')}: <strong>{t(`seasons.${currentSeason}`)}</strong></span>
 			</div>
 
+			{attentionPlants.length > 0 && (
+				<div className="attention-banner">
+					<div className="attention-banner-title">⚠️ {t('app.needsAttention')}</div>
+					<ul className="attention-banner-list">
+						{attentionPlants.map(({ plant, needsWater, needsFertilize, activeIssueCount }) => (
+							<li
+								key={plant.id}
+								className="attention-banner-pill"
+								onClick={() => setSearchTerm(plant.nickname || plant.name)}
+							>
+								<strong>{plant.nickname || plant.name}</strong>
+								{needsWater && <span className="attention-banner-tag">💧</span>}
+								{needsFertilize && <span className="attention-banner-tag">🧪</span>}
+								{activeIssueCount > 0 && <span className="attention-banner-tag">🏥</span>}
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
+
+			{plants.length > 0 && (
+				<div className="plant-controls">
+					<div className="plant-search-wrap">
+						<input
+							type="text"
+							className="plant-search"
+							placeholder={t('app.searchPlaceholder')}
+							value={searchTerm}
+							onChange={(e) => setSearchTerm(e.target.value)}
+						/>
+						{searchTerm && (
+							<button
+								type="button"
+								className="plant-search-clear"
+								aria-label={t('app.clearSearch')}
+								onClick={() => setSearchTerm('')}
+							>
+								×
+							</button>
+						)}
+					</div>
+					<select
+						className="plant-sort"
+						value={sortBy}
+						onChange={(e) => setSortBy(e.target.value as SortOption)}
+					>
+						<option value="name">{t('app.sortName')}</option>
+						<option value="species">{t('app.sortSpecies')}</option>
+						<option value="attention">{t('app.sortAttention')}</option>
+					</select>
+				</div>
+			)}
+
 			{plants.length === 0 ? (
 				<div className="empty-state">
 					<div style={{ fontSize: '3rem' }}>🌿</div>
 				</div>
+			) : sortedPlants.length === 0 ? (
+				<div className="empty-state">
+					<div style={{ fontSize: '3rem' }}>🔍</div>
+					<p>{t('app.noResults')}</p>
+				</div>
 			) : (
 				<div className="plant-grid">
-					{plants.map((plant) => (
+					{sortedPlants.map((plant) => (
 						<PlantCard
 							key={plant.id}
 							plant={plant}

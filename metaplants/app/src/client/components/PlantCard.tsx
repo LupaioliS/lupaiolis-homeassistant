@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, Season, SeasonalSchedule, PlantReadings } from '../../shared/types';
+import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
+import { getIntervalForSeason, isOverdue } from '../plantStatus';
 import { withBase } from '../basePath';
 import { ActionDialog, type ActionDialogType } from './ActionDialog';
 
@@ -39,7 +40,7 @@ function getStatus(lastAction: string | undefined, intervalDays: number): { over
 	const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
 	const elapsedMs = Date.now() - new Date(lastAction).getTime();
 
-	if (elapsedMs >= intervalMs) {
+	if (isOverdue(lastAction, intervalDays)) {
 		if (elapsedMs - intervalMs < 24 * 60 * 60 * 1000) {
 			return {
 				overdue: true,
@@ -60,12 +61,6 @@ function getStatus(lastAction: string | undefined, intervalDays: number): { over
 
 	const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
 	return { overdue: false, label: t('status.inDays').replace('{days}', String(remainingDays)) };
-}
-
-function getIntervalForSeason(schedule: SeasonalSchedule | undefined, season: Season, fallbackDays: number): number {
-	const seasonal = schedule?.[season];
-	if (typeof seasonal === 'number' && seasonal > 0) return seasonal;
-	return fallbackDays;
 }
 
 function formatDate(dateStr?: string): string {
