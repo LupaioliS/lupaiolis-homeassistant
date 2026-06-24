@@ -5,6 +5,7 @@ import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
+import { getIntervalForSeason, isOverdue } from './plantStatus';
 import { BASE_PATH } from './basePath';
 
 export function App() {
@@ -103,6 +104,17 @@ export function App() {
 
 	const currentSeason = getCurrentSeason();
 
+	const attentionPlants = plants
+		.map((plant) => {
+			const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, currentSeason, plant.wateringIntervalDays ?? 3);
+			const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, currentSeason, plant.fertilizingIntervalDays ?? 14);
+			const needsWater = isOverdue(plant.lastWatered, waterIntervalDays);
+			const needsFertilize = isOverdue(plant.lastFertilized, fertIntervalDays);
+			const activeIssueCount = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate).length;
+			return { plant, needsWater, needsFertilize, activeIssueCount };
+		})
+		.filter((p) => p.needsWater || p.needsFertilize || p.activeIssueCount > 0);
+
 	return (
 		<div className="app">
 			<header>
@@ -120,6 +132,22 @@ export function App() {
 				<span className="season-banner-emoji">{seasonEmoji[currentSeason]}</span>
 				<span>{t('app.currentSeason')}: <strong>{t(`seasons.${currentSeason}`)}</strong></span>
 			</div>
+
+			{attentionPlants.length > 0 && (
+				<div className="attention-banner">
+					<div className="attention-banner-title">⚠️ {t('app.needsAttention')}</div>
+					<ul className="attention-banner-list">
+						{attentionPlants.map(({ plant, needsWater, needsFertilize, activeIssueCount }) => (
+							<li key={plant.id}>
+								<strong>{plant.nickname || plant.name}</strong>
+								{needsWater && <span className="attention-banner-tag">💧</span>}
+								{needsFertilize && <span className="attention-banner-tag">🧪</span>}
+								{activeIssueCount > 0 && <span className="attention-banner-tag">🏥</span>}
+							</li>
+						))}
+					</ul>
+				</div>
+			)}
 
 			{plants.length === 0 ? (
 				<div className="empty-state">

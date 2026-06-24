@@ -5,6 +5,7 @@ export const en = {
 		addPlant: '+ Add Plant',
 		empty: 'No plants added yet',
 		currentSeason: 'Current season',
+		needsAttention: 'Needs attention',
 	},
 	plant: {
 		name: 'Name',

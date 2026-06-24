@@ -614,6 +614,46 @@ header h1 {
   line-height: 1;
 }
 
+/* Attention banner */
+.attention-banner {
+  background: #fef3c7;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  padding: 10px 16px;
+  margin-bottom: 18px;
+  color: #92400e;
+  font-size: 0.95rem;
+}
+
+.attention-banner-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.attention-banner-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.attention-banner-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 6px;
+  padding: 4px 12px;
+  color: #c2410c;
+}
+
+.attention-banner-tag {
+  font-size: 0.95rem;
+}
+
 /* Photos */
 .plant-photo {
   width: 100%;

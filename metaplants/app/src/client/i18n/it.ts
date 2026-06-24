@@ -5,6 +5,7 @@ export const it = {
 		addPlant: '+ Aggiungi Pianta',
 		empty: 'Nessuna pianta aggiunta',
 		currentSeason: 'Stagione attuale',
+		needsAttention: 'Hanno bisogno di attenzioni',
 	},
 	plant: {
 		name: 'Nome',
