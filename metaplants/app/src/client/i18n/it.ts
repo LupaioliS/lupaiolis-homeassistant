@@ -6,6 +6,12 @@ export const it = {
 		empty: 'Nessuna pianta aggiunta',
 		currentSeason: 'Stagione attuale',
 		needsAttention: 'Hanno bisogno di attenzioni',
+		searchPlaceholder: 'Cerca per nome, soprannome, specie o problema...',
+		clearSearch: 'Cancella ricerca',
+		sortName: 'Ordina per nome',
+		sortSpecies: 'Ordina per specie',
+		sortAttention: 'Ordina per attenzioni necessarie',
+		noResults: 'Nessuna pianta corrisponde alla ricerca',
 	},
 	plant: {
 		name: 'Nome',
