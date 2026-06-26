@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
@@ -6,6 +6,9 @@ import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
 import { getIntervalForSeason, isOverdue } from '../plantStatus';
 import { withBase } from '../basePath';
 import { ActionDialog, type ActionDialogType } from './ActionDialog';
+import { WaterSplashEffect, DROPLET_FALL_DURATION_S, DROPLET_STAGGER_S, DROPLET_ARRIVAL_FRACTION, type SplashTarget } from './WaterSplashEffect';
+import { WaterFillOverlay, FILL_DURATION_MS, type FillTarget } from './WaterFillOverlay';
+import { FertilizeSproutEffect, SPROUT_DURATION_MS } from './FertilizeSproutEffect';
 
 interface PlantCardProps {
 	plant: Plant;
@@ -160,6 +163,15 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 	const [lastWaterMl, setLastWaterMl] = useState<number | null>(null);
 	const [lastFertGrams, setLastFertGrams] = useState<number | null>(null);
 	const [lastPotSizeCm, setLastPotSizeCm] = useState<number | null>(null);
+	const cardRef = useRef<HTMLDivElement>(null);
+	const waterPillRef = useRef<HTMLSpanElement>(null);
+	const waterButtonRef = useRef<HTMLDivElement>(null);
+	const fertPillRef = useRef<HTMLSpanElement>(null);
+	const fertButtonRef = useRef<HTMLDivElement>(null);
+	const targetRectsRef = useRef<Record<string, FillTarget>>({});
+	const [splashTargets, setSplashTargets] = useState<SplashTarget[]>([]);
+	const [fillTargets, setFillTargets] = useState<FillTarget[]>([]);
+	const [sproutTargets, setSproutTargets] = useState<FillTarget[]>([]);
 
 	const season = getCurrentSeason();
 	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
@@ -212,9 +224,71 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 		api.logAction(plant.id, 'repot', { potSizeCm }).catch(onRefresh);
 	};
 
+	const computeFillTarget = (id: string, el: HTMLElement, cardRect: DOMRect): FillTarget => {
+		const rect = el.getBoundingClientRect();
+		const radius = getComputedStyle(el).borderRadius;
+		return {
+			id,
+			left: rect.left - cardRect.left,
+			top: rect.top - cardRect.top,
+			width: rect.width,
+			height: rect.height,
+			radius,
+		};
+	};
+
+	const measureTarget = (id: string, el: HTMLElement, cardRect: DOMRect): SplashTarget => {
+		const fillTarget = computeFillTarget(id, el, cardRect);
+		targetRectsRef.current[id] = fillTarget;
+		return { id, x: fillTarget.left + fillTarget.width / 2, y: fillTarget.top + fillTarget.height / 2 };
+	};
+
+	const startWaterFill = (id: string) => {
+		const rect = targetRectsRef.current[id];
+		if (!rect) return;
+		setFillTargets((prev) => [...prev, rect]);
+		setTimeout(() => setFillTargets((prev) => prev.filter((t) => t.id !== id)), FILL_DURATION_MS);
+	};
+
+	const launchWaterDroplets = () => {
+		const cardRect = cardRef.current?.getBoundingClientRect();
+		if (!cardRect) return;
+		const targets: SplashTarget[] = [];
+		if (waterPillRef.current) targets.push(measureTarget('pill', waterPillRef.current, cardRect));
+		const buttonEl = waterButtonRef.current?.querySelector('button');
+		if (buttonEl) targets.push(measureTarget('button', buttonEl, cardRect));
+		setSplashTargets(targets);
+		// Il riempimento parte mentre la goccia tocca il target, non quando finisce di rimbalzare.
+		targets.forEach((target, i) => {
+			const arrivalMs = (i * DROPLET_STAGGER_S + DROPLET_ARRIVAL_FRACTION * DROPLET_FALL_DURATION_S) * 1000;
+			setTimeout(() => startWaterFill(target.id), arrivalMs);
+		});
+	};
+
+	const handleDropletSettle = (id: string) => {
+		setSplashTargets((prev) => prev.filter((t) => t.id !== id));
+	};
+
+	const launchFertilizeSprouts = () => {
+		const cardRect = cardRef.current?.getBoundingClientRect();
+		if (!cardRect) return;
+		const targets: FillTarget[] = [];
+		if (fertPillRef.current) targets.push(computeFillTarget('fert-pill', fertPillRef.current, cardRect));
+		const buttonEl = fertButtonRef.current?.querySelector('button');
+		if (buttonEl) targets.push(computeFillTarget('fert-button', buttonEl, cardRect));
+		setSproutTargets(targets);
+		setTimeout(() => setSproutTargets([]), SPROUT_DURATION_MS);
+	};
+
 	const handleDialogConfirm = async (value: number) => {
-		if (activeDialog === 'water') await onWater(value);
-		else if (activeDialog === 'fertilize') await onFertilize(value);
+		if (activeDialog === 'water') {
+			await onWater(value);
+			launchWaterDroplets();
+		}
+		else if (activeDialog === 'fertilize') {
+			await onFertilize(value);
+			launchFertilizeSprouts();
+		}
 		else if (activeDialog === 'repot') await handleRepot(value);
 		setActiveDialog(null);
 	};
@@ -304,7 +378,10 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 	const resolvedIssues = (plant.healthIssues ?? []).filter((i) => i.resolvedDate);
 
 	return (
-		<div className="plant-card">
+		<div className="plant-card" ref={cardRef}>
+			<WaterSplashEffect targets={splashTargets} onSettle={handleDropletSettle} />
+			<WaterFillOverlay targets={fillTargets} />
+			<FertilizeSproutEffect targets={sproutTargets} />
 			{plant.imageUrl && (
 				<img className="plant-photo" src={withBase(plant.imageUrl)} alt={plant.name} />
 			)}
@@ -317,10 +394,10 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 			)}
 
 			<div className="status">
-				<span className={`status-item ${waterStatus.overdue ? 'overdue' : 'ok'}`}>
+				<span ref={waterPillRef} className={`status-item ${waterStatus.overdue ? 'overdue' : 'ok'}`}>
 					💧 {waterStatus.label}
 				</span>
-				<span className={`status-item ${fertStatus.overdue ? 'overdue' : 'ok'}`}>
+				<span ref={fertPillRef} className={`status-item ${fertStatus.overdue ? 'overdue' : 'ok'}`}>
 					🧪 {fertStatus.label}
 				</span>
 			</div>
@@ -399,8 +476,12 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 			)}
 
 			<div className="actions">
-				<ActionButton disabled={isDoneToday(plant.lastWatered)} className="btn btn-water" onClick={() => setActiveDialog('water')} label={`💧 ${t('actions.water')}`} />
-				<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={() => setActiveDialog('fertilize')} label={`🧪 ${t('actions.fertilize')}`} />
+				<div ref={waterButtonRef} className="action-btn-measure-wrap">
+					<ActionButton disabled={isDoneToday(plant.lastWatered)} className="btn btn-water" onClick={() => setActiveDialog('water')} label={`💧 ${t('actions.water')}`} />
+				</div>
+				<div ref={fertButtonRef} className="action-btn-measure-wrap">
+					<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={() => setActiveDialog('fertilize')} label={`🧪 ${t('actions.fertilize')}`} />
+				</div>
 				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={() => setActiveDialog('repot')} label={`🪴 ${t('actions.repot')}`} />
 				<ActionButton disabled={isDoneToday(plant.lastPruned)} className="btn btn-secondary" onClick={handlePrune} label={`✂️ ${t('actions.prune')}`} />
 				<button className="btn btn-secondary" onClick={onEdit}>✏️</button>
