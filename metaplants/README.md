@@ -15,12 +15,16 @@ MetaPlants exposes each plant as an **MQTT device** in Home Assistant through MQ
 
 For each plant, it automatically creates:
 
-- 5 sensors:
-  - watering
-  - fertilizing
-  - repotting
-  - pruning
+- 9 sensors:
+  - watering (text status, e.g. "in 3d")
+  - fertilizing (text status)
+  - repotting (text status)
+  - pruning (text status)
   - health
+  - next watering date (timestamp, for automations)
+  - next fertilizing date (timestamp, for automations)
+  - last repotted date (timestamp, for automations)
+  - last pruned date (timestamp, for automations)
 - 4 command buttons:
   - water
   - fertilize
@@ -41,6 +45,10 @@ Base project topics:
   - `metaplants/plant/<slug>/repotting`
   - `metaplants/plant/<slug>/pruning`
   - `metaplants/plant/<slug>/health`
+  - `metaplants/plant/<slug>/watering_next` (ISO 8601 timestamp)
+  - `metaplants/plant/<slug>/fertilizing_next` (ISO 8601 timestamp)
+  - `metaplants/plant/<slug>/repotting_last` (ISO 8601 timestamp)
+  - `metaplants/plant/<slug>/pruning_last` (ISO 8601 timestamp)
 - JSON attributes:
   - `metaplants/plant/<slug>/attributes`
   - `metaplants/plant/<slug>/health_attributes`
@@ -100,6 +108,30 @@ action:
     data:
       title: "MetaPlants"
       message: "Your ficus needs water."
+mode: single
+```
+
+The text sensors above are convenient to read but hard to trigger automations
+on reliably (e.g. matching the exact string "Overdue" is locale-dependent and
+breaks if the phrasing changes). For date-based logic, use the `_next`/`_last`
+timestamp sensors instead — e.g. notify the day before a plant is due for
+water:
+
+```yaml
+alias: Plant watering reminder
+trigger:
+  - platform: time
+    at: "09:00:00"
+condition:
+  - condition: template
+    value_template: >
+      {{ (states('sensor.ficus_watering_next') | as_datetime | as_local).date()
+         == (now() + timedelta(days=1)).date() }}
+action:
+  - service: notify.mobile_app_your_phone
+    data:
+      title: "MetaPlants"
+      message: "Your ficus needs water tomorrow."
 mode: single
 ```
 
