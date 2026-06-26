@@ -7,6 +7,15 @@ import { Plant, PlantReadings } from '../shared/types';
 const readings = new Map<string, PlantReadings>(); // plantId -> ultimi valori
 let timer: NodeJS.Timeout | null = null;
 
+// Iniettato da index.ts per evitare un import circolare con mqtt.ts: senza questo,
+// le letture sensori e il republish MQTT girano su due timer indipendenti e possono
+// disallinearsi fino a un intero ciclo di polling.
+let onReadingsUpdated: ((plant: Plant) => void) | null = null;
+
+export function setOnReadingsUpdated(callback: (plant: Plant) => void): void {
+	onReadingsUpdated = callback;
+}
+
 export function getReadings(plantId: string): PlantReadings | undefined {
 	return readings.get(plantId);
 }
@@ -17,21 +26,24 @@ export function getAllReadings(): Record<string, PlantReadings> {
 
 async function readPlant(plant: Plant): Promise<void> {
 	const s = plant.sensors;
-	if (!s?.temperature && !s?.humidity) return;
+	if (!s?.temperature && !s?.ambientHumidity && !s?.soilHumidity) return;
 
-	const [temp, hum] = await Promise.all([
+	const [temp, ambientHum, soilHum] = await Promise.all([
 		s?.temperature ? getEntityState(s.temperature) : Promise.resolve(null),
-		s?.humidity ? getEntityState(s.humidity) : Promise.resolve(null),
+		s?.ambientHumidity ? getEntityState(s.ambientHumidity) : Promise.resolve(null),
+		s?.soilHumidity ? getEntityState(s.soilHumidity) : Promise.resolve(null),
 	]);
 
 	const next: PlantReadings = {
 		temperature: temp?.value ?? null,
-		humidity: hum?.value ?? null,
+		ambientHumidity: ambientHum?.value ?? null,
+		soilHumidity: soilHum?.value ?? null,
 		updatedAt: new Date().toISOString(),
 	};
 
 	readings.set(plant.id, next);
 	broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
+	onReadingsUpdated?.(plant);
 }
 
 async function pollOnce(): Promise<void> {

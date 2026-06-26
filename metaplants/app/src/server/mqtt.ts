@@ -4,6 +4,7 @@ import { store } from './store';
 import { broadcast } from './events';
 import { mt } from './i18n';
 import { config } from './config';
+import { getReadings } from './sensors';
 
 const MQTT_URL = config.mqttUrl;
 const MQTT_USER = config.mqttUser;
@@ -13,6 +14,15 @@ const TOPIC_PREFIX = 'metaplants';
 
 let client: mqtt.MqttClient | null = null;
 const discoveredPlants = new Set<string>();
+const lastPublished = new Map<string, string>();
+
+// Evita di pubblicare retained message identici a ogni tick dello scheduler.
+function publishIfChanged(topic: string, payload: string) {
+	if (!client?.connected) return;
+	if (lastPublished.get(topic) === payload) return;
+	lastPublished.set(topic, payload);
+	client.publish(topic, payload, { retain: true });
+}
 
 export function connectMqtt(): Promise<void> {
 	return new Promise((resolve, reject) => {
@@ -205,6 +215,86 @@ function publishDiscovery(plant: Plant) {
 		{ retain: true }
 	);
 
+	// Next watering date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/watering_next/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.watering_next')}`,
+			object_id: `${slug}_watering_next`,
+			unique_id: `${deviceId}_watering_next`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/watering_next`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:watering-can',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Soil sensor watering alert (binary, for automations independent of the time-based schedule)
+	client.publish(
+		`${DISCOVERY_PREFIX}/binary_sensor/${deviceId}/soil_needs_water/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.soil_needs_water')}`,
+			object_id: `${slug}_soil_needs_water`,
+			unique_id: `${deviceId}_soil_needs_water`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/soil_needs_water`,
+			device_class: 'problem',
+			device,
+			icon: 'mdi:water-alert',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Next fertilizing date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/fertilizing_next/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.fertilizing_next')}`,
+			object_id: `${slug}_fertilizing_next`,
+			unique_id: `${deviceId}_fertilizing_next`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/fertilizing_next`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:bottle-tonic',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Last repotted date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/repotting_last/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.repotting_last')}`,
+			object_id: `${slug}_repotting_last`,
+			unique_id: `${deviceId}_repotting_last`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/repotting_last`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:flower-pollen',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Last pruned date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/pruning_last/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.pruning_last')}`,
+			object_id: `${slug}_pruning_last`,
+			unique_id: `${deviceId}_pruning_last`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/pruning_last`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:content-cut',
+			availability,
+		}),
+		{ retain: true }
+	);
+
 	// Health sensor
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/health/config`,
@@ -278,7 +368,7 @@ function getActionStatus(lastAction: string | undefined, intervalDays: number, n
 	const intervalMs = intervalDays * DAY_MS;
 
 	if (elapsedMs >= intervalMs) {
-		if (elapsedMs - intervalMs < DAY_MS) {
+		if (elapsedMs < DAY_MS) {
 			return `${mt('status.hoursAgo', { hours: hoursAgo })} (${mt('status.overdue')})`;
 		}
 		return `${mt('status.daysAgo', { days: daysAgo })} (${mt('status.overdue')})`;
@@ -302,28 +392,48 @@ function publishState(plant: Plant) {
 	const wateringIntervalDays = getSeasonalInterval(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
 	const fertilizingIntervalDays = getSeasonalInterval(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 
-	// Watering state
-	const waterState = getActionStatus(plant.lastWatered, wateringIntervalDays, 'watering.never');
-	client.publish(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState, { retain: true });
+	// Watering state — il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
+	const soilThreshold = plant.sensors?.soilHumidityThreshold;
+	const soilHumidity = getReadings(plant.id)?.soilHumidity;
+	const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
+	const waterState = soilNeedsWater
+		? mt('status.soilSensorWater')
+		: getActionStatus(plant.lastWatered, wateringIntervalDays, 'watering.never');
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState);
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/soil_needs_water`, soilNeedsWater ? 'ON' : 'OFF');
 
 	// Fertilizing state
 	const fertState = getActionStatus(plant.lastFertilized, fertilizingIntervalDays, 'fertilizing.never');
-	client.publish(`${TOPIC_PREFIX}/plant/${slug}/fertilizing`, fertState, { retain: true });
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/fertilizing`, fertState);
 
 	// Repotting state
 	const repotDays = daysAgo(plant.lastRepotted);
 	const repotState = repotDays === null ? mt('repotting.never') : mt('repotting.daysAgo', { days: repotDays });
-	client.publish(`${TOPIC_PREFIX}/plant/${slug}/repotting`, repotState, { retain: true });
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/repotting`, repotState);
 
 	// Pruning state
 	const pruneDays = daysAgo(plant.lastPruned);
 	const pruneState = pruneDays === null ? mt('pruning.never') : mt('pruning.daysAgo', { days: pruneDays });
-	client.publish(`${TOPIC_PREFIX}/plant/${slug}/pruning`, pruneState, { retain: true });
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/pruning`, pruneState);
+
+	// Next watering/fertilizing dates, last repotted/pruned dates — for automations (ISO 8601, device_class timestamp)
+	const nextWatering = plant.lastWatered
+		? new Date(new Date(plant.lastWatered).getTime() + wateringIntervalDays * DAY_MS).toISOString()
+		: '';
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/watering_next`, nextWatering);
+
+	const nextFertilizing = plant.lastFertilized
+		? new Date(new Date(plant.lastFertilized).getTime() + fertilizingIntervalDays * DAY_MS).toISOString()
+		: '';
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/fertilizing_next`, nextFertilizing);
+
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/repotting_last`, plant.lastRepotted || '');
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/pruning_last`, plant.lastPruned || '');
 
 	// Health state
 	const activeIssues = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate);
 	const healthState = activeIssues.length === 0 ? mt('health.healthy') : mt('health.issues', { count: activeIssues.length });
-	client.publish(`${TOPIC_PREFIX}/plant/${slug}/health`, healthState, { retain: true });
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/health`, healthState);
 
 	// Health attributes (active + history)
 	const healthAttrs = {
@@ -332,7 +442,7 @@ function publishState(plant: Plant) {
 			type: i.type, name: i.name, detected: i.detectedDate, resolved: i.resolvedDate, treatment: i.treatment,
 		})),
 	};
-	client.publish(`${TOPIC_PREFIX}/plant/${slug}/health_attributes`, JSON.stringify(healthAttrs), { retain: true });
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/health_attributes`, JSON.stringify(healthAttrs));
 
 	// Full attributes
 	const attributes = {
@@ -353,7 +463,7 @@ function publishState(plant: Plant) {
 		})),
 		notes: plant.notes || null,
 	};
-	client.publish(`${TOPIC_PREFIX}/plant/${slug}/attributes`, JSON.stringify(attributes), { retain: true });
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/attributes`, JSON.stringify(attributes));
 }
 
 export function publishPlant(plant: Plant) {
@@ -382,18 +492,21 @@ export function removePlant(plant: Plant) {
 	discoveredPlants.delete(plant.id);
 
 	// Remove discovery configs
-	const sensorTypes = ['watering', 'fertilizing', 'repotting', 'pruning', 'health'];
+	const sensorTypes = ['watering', 'fertilizing', 'repotting', 'pruning', 'health', 'watering_next', 'fertilizing_next', 'repotting_last', 'pruning_last'];
 	for (const type of sensorTypes) {
 		client.publish(`${DISCOVERY_PREFIX}/sensor/${deviceId}/${type}/config`, '', { retain: true });
 	}
+	client.publish(`${DISCOVERY_PREFIX}/binary_sensor/${deviceId}/soil_needs_water/config`, '', { retain: true });
 	const actionTypes = ['water', 'fertilize', 'repot', 'prune'];
 	for (const action of actionTypes) {
 		client.publish(`${DISCOVERY_PREFIX}/button/${deviceId}/${action}/config`, '', { retain: true });
 	}
 
 	// Remove state topics
-	const stateTopics = ['watering', 'fertilizing', 'repotting', 'pruning', 'health', 'health_attributes', 'attributes'];
+	const stateTopics = ['watering', 'fertilizing', 'repotting', 'pruning', 'health', 'health_attributes', 'attributes', 'watering_next', 'fertilizing_next', 'repotting_last', 'pruning_last', 'soil_needs_water'];
 	for (const t of stateTopics) {
-		client.publish(`${TOPIC_PREFIX}/plant/${slug}/${t}`, '', { retain: true });
+		const topic = `${TOPIC_PREFIX}/plant/${slug}/${t}`;
+		client.publish(topic, '', { retain: true });
+		lastPublished.delete(topic);
 	}
 }

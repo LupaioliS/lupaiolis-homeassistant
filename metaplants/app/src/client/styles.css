@@ -54,12 +54,99 @@ header h1 {
 }
 
 .plant-card {
+  position: relative;
   background: white;
   border-radius: var(--radius);
   padding: 20px;
   box-shadow: var(--shadow);
   border: 1px solid var(--green-200);
   transition: transform 0.15s, box-shadow 0.15s;
+}
+
+.water-splash-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 5;
+}
+
+.water-droplet-anchor {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+
+.water-droplet {
+  display: inline-block;
+  font-size: 1.4rem;
+  filter: drop-shadow(0 2px 2px rgba(29, 78, 216, 0.35));
+}
+
+.water-ripple {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 10px;
+  margin-left: -11px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at center, rgba(96, 165, 250, 0.55), rgba(96, 165, 250, 0));
+}
+
+.water-fill-box {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.water-fill-level {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  background: linear-gradient(to top, rgba(37, 99, 235, 0.55), rgba(147, 197, 253, 0.35));
+  box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.5) inset;
+}
+
+.water-fill-bubble {
+  position: absolute;
+  bottom: 8%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.fert-sprout-box {
+  position: absolute;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 6;
+}
+
+.fert-bag {
+  position: absolute;
+  top: -38px;
+  left: 50%;
+  font-size: 1.2rem;
+}
+
+.fert-crumb {
+  position: absolute;
+  top: -22px;
+  width: 4px;
+  height: 4px;
+  border-radius: 1px;
+  background: #8b5e34;
+}
+
+.fert-sprout {
+  position: absolute;
+  bottom: 100%;
+  font-size: 1.15rem;
+  transform-origin: bottom center;
 }
 
 .plant-card:hover {
@@ -117,10 +204,24 @@ header h1 {
   color: var(--green-700);
 }
 
+.soil-humidity-pill {
+  font-weight: 600;
+  transition: background 0.4s, color 0.4s;
+}
+
+.soil-humidity-pill.overdue {
+  outline: 2px solid #dc2626;
+  outline-offset: 1px;
+}
+
 .actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.action-btn-measure-wrap {
+  display: contents;
 }
 
 /* Action button with disable/force */

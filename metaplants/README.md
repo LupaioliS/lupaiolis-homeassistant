@@ -15,12 +15,16 @@ MetaPlants exposes each plant as an **MQTT device** in Home Assistant through MQ
 
 For each plant, it automatically creates:
 
-- 5 sensors:
-  - watering
-  - fertilizing
-  - repotting
-  - pruning
+- 9 sensors:
+  - watering (text status, e.g. "in 3d")
+  - fertilizing (text status)
+  - repotting (text status)
+  - pruning (text status)
   - health
+  - next watering date (timestamp, for automations)
+  - next fertilizing date (timestamp, for automations)
+  - last repotted date (timestamp, for automations)
+  - last pruned date (timestamp, for automations)
 - 4 command buttons:
   - water
   - fertilize
@@ -41,6 +45,10 @@ Base project topics:
   - `metaplants/plant/<slug>/repotting`
   - `metaplants/plant/<slug>/pruning`
   - `metaplants/plant/<slug>/health`
+  - `metaplants/plant/<slug>/watering_next` (ISO 8601 timestamp)
+  - `metaplants/plant/<slug>/fertilizing_next` (ISO 8601 timestamp)
+  - `metaplants/plant/<slug>/repotting_last` (ISO 8601 timestamp)
+  - `metaplants/plant/<slug>/pruning_last` (ISO 8601 timestamp)
 - JSON attributes:
   - `metaplants/plant/<slug>/attributes`
   - `metaplants/plant/<slug>/health_attributes`
@@ -68,6 +76,54 @@ quietly skipped.
 Readings are display-only: they aren't saved to disk or pushed to MQTT, since a
 stale temperature is worse than none. Only the entity ID you pick is stored
 with the plant.
+
+## Soil Moisture Sensor
+
+If you've got a soil moisture probe on a plant (Zigbee, Wi-Fi, whatever — as
+long as it shows up as a Home Assistant sensor with a percentage state),
+MetaPlants can use it to override the watering schedule instead of just
+guessing from elapsed days.
+
+In the plant form, paste the sensor's `entity_id` (e.g.
+`sensor.vaso_monstera_umidita_terreno`) into the soil humidity field, then set
+a threshold percentage — the value below which the plant is considered dry.
+Leave the entity blank and MetaPlants falls back to the seasonal time-based
+schedule like before.
+
+Once configured, the soil reading **wins over the calendar**: even if the
+plant isn't technically due for water yet, dropping below the threshold marks
+it as needing water right away, and the watering pill on the card switches to
+a dedicated "soil sensor" message instead of the usual "in N days". The pill
+itself also fades smoothly between a dry (tan) and wet (blue) tint as the
+reading approaches the threshold, so you get a sense of how close it is
+without staring at the raw percentage. A dry plant also surfaces in the
+"needs attention" banner just like an overdue one.
+
+Readings are polled from Home Assistant every 60 seconds (plus right after
+you save the plant), the same mechanism used for temperature/humidity — see
+[Environmental Readings](#environmental-readings) below for the polling
+details and caveats.
+
+### What this means on MQTT
+
+Soil moisture isn't just a UI nicety — it's exposed as its own entity so you
+can build automations on it directly, separate from the time-based watering
+sensor:
+
+- A binary sensor is published per plant: `metaplants/plant/<slug>/soil_needs_water`
+  (`ON` when the reading is at or below the threshold, `OFF` otherwise), with
+  discovery config under `{discoveryPrefix}/binary_sensor/<device>/soil_needs_water/config`.
+  It shows up in Home Assistant as a "problem" sensor, so it lights up red
+  when something needs attention.
+- The regular watering text sensor (`metaplants/plant/<slug>/watering`) also
+  reflects the override — while the soil sensor says dry, it reports a
+  soil-specific message instead of the usual day count.
+- The raw soil percentage itself is **not** published to MQTT; it's a live
+  Home Assistant value already, so MetaPlants just reads it rather than
+  re-publishing a copy.
+- Like the other plant sensors, MetaPlants skips republishing a topic if the
+  value hasn't actually changed since the last publish, so you won't see the
+  retained message churn on every hourly refresh — just real state changes.
 
 ## Seasonal Schedules & Suggestions
 
@@ -100,6 +156,30 @@ action:
     data:
       title: "MetaPlants"
       message: "Your ficus needs water."
+mode: single
+```
+
+The text sensors above are convenient to read but hard to trigger automations
+on reliably (e.g. matching the exact string "Overdue" is locale-dependent and
+breaks if the phrasing changes). For date-based logic, use the `_next`/`_last`
+timestamp sensors instead — e.g. notify the day before a plant is due for
+water:
+
+```yaml
+alias: Plant watering reminder
+trigger:
+  - platform: time
+    at: "09:00:00"
+condition:
+  - condition: template
+    value_template: >
+      {{ (states('sensor.ficus_watering_next') | as_datetime | as_local).date()
+         == (now() + timedelta(days=1)).date() }}
+action:
+  - service: notify.mobile_app_your_phone
+    data:
+      title: "MetaPlants"
+      message: "Your ficus needs water tomorrow."
 mode: single
 ```
 

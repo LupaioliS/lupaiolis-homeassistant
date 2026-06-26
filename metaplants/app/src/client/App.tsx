@@ -42,6 +42,14 @@ export function App() {
 	// Real-time updates via SSE
 	useEffect(() => {
 		const evtSource = new EventSource(`${BASE_PATH}/api/events`);
+		// Il browser riconnette automaticamente dopo una caduta della connessione, ma
+		// gli eventi persi nel frattempo non vengono ritrasmessi: senza un resync qui,
+		// il frontend resta con dati stantii finché non arriva un nuovo evento o l'utente
+		// ricarica la pagina a mano. onopen scatta sia alla prima connessione che a ogni
+		// riconnessione, quindi un fetch completo qui copre entrambi i casi.
+		evtSource.onopen = () => {
+			loadPlants();
+		};
 		evtSource.onmessage = (event) => {
 			try {
 				const data = JSON.parse(event.data);
@@ -113,7 +121,11 @@ export function App() {
 	const getAttention = (plant: Plant) => {
 		const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, currentSeason, plant.wateringIntervalDays ?? 3);
 		const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, currentSeason, plant.fertilizingIntervalDays ?? 14);
-		const needsWater = isOverdue(plant.lastWatered, waterIntervalDays);
+		const soilThreshold = plant.sensors?.soilHumidityThreshold;
+		const soilHumidity = readings[plant.id]?.soilHumidity;
+		// Il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
+		const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
+		const needsWater = soilNeedsWater || isOverdue(plant.lastWatered, waterIntervalDays);
 		const needsFertilize = isOverdue(plant.lastFertilized, fertIntervalDays);
 		const activeIssueCount = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate).length;
 		return { needsWater, needsFertilize, activeIssueCount };
