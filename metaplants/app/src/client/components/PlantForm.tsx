@@ -84,10 +84,14 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 			fertilizingIntervalDays: fertilizingSchedule[season],
 			wateringSchedule,
 			fertilizingSchedule,
-			sensors: (sensors.temperature?.trim() || sensors.humidity?.trim())
+			sensors: (sensors.temperature?.trim() || sensors.ambientHumidity?.trim() || sensors.soilHumidity?.trim())
 				? {
 					temperature: sensors.temperature?.trim() || undefined,
-					humidity: sensors.humidity?.trim() || undefined,
+					ambientHumidity: sensors.ambientHumidity?.trim() || undefined,
+					soilHumidity: sensors.soilHumidity?.trim() || undefined,
+					soilHumidityThreshold: sensors.soilHumidity?.trim() && sensors.soilHumidityThreshold != null
+						? sensors.soilHumidityThreshold
+						: undefined,
 				}
 			: undefined,
 			notes,
@@ -195,13 +199,34 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 							/>
 						</div>
 						<div className="form-group">
-							<label>{t('plant.sensorHumidity')}</label>
+							<label>{t('plant.sensorAmbientHumidity')}</label>
 							<input
-								value={sensors.humidity ?? ''}
-								onChange={(e) => setSensors({ ...sensors, humidity: e.target.value })}
-								placeholder={t('plant.sensorHumidityPlaceholder')}
+								value={sensors.ambientHumidity ?? ''}
+								onChange={(e) => setSensors({ ...sensors, ambientHumidity: e.target.value })}
+								placeholder={t('plant.sensorAmbientHumidityPlaceholder')}
 							/>
 						</div>
+						<div className="form-group">
+							<label>{t('plant.sensorSoilHumidity')}</label>
+							<input
+								value={sensors.soilHumidity ?? ''}
+								onChange={(e) => setSensors({ ...sensors, soilHumidity: e.target.value })}
+								placeholder={t('plant.sensorSoilHumidityPlaceholder')}
+							/>
+						</div>
+						{sensors.soilHumidity?.trim() && (
+							<div className="form-group">
+								<label>{t('plant.soilHumidityThreshold')}</label>
+								<input
+									type="number"
+									min={0}
+									max={100}
+									value={sensors.soilHumidityThreshold ?? ''}
+									onChange={(e) => setSensors({ ...sensors, soilHumidityThreshold: e.target.value ? Number(e.target.value) : undefined })}
+									placeholder={t('plant.soilHumidityThresholdPlaceholder')}
+								/>
+							</div>
+						)}
 					</fieldset>
 
 					<div className="form-group">
