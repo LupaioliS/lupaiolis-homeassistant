@@ -38,6 +38,7 @@ export const mqtt_it = {
 		pruning: 'Potatura',
 		health: 'Salute',
 		watering_next: 'Prossima Irrigazione',
+		soil_needs_water: 'Allerta Irrigazione Sensore Terreno',
 		fertilizing_next: 'Prossima Fertilizzazione',
 		repotting_last: 'Ultimo Rinvaso',
 		pruning_last: 'Ultima Potatura',

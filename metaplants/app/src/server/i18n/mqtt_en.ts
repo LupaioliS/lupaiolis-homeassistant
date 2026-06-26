@@ -38,6 +38,7 @@ export const mqtt_en = {
 		pruning: 'Pruning',
 		health: 'Health',
 		watering_next: 'Next Watering',
+		soil_needs_water: 'Soil Sensor Watering Alert',
 		fertilizing_next: 'Next Fertilizing',
 		repotting_last: 'Last Repotted',
 		pruning_last: 'Last Pruned',
