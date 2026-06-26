@@ -34,12 +34,16 @@ export interface SeasonalSchedule {
 }
 
 export interface PlantSensors {
-	temperature?: string;   // es "sensor.salotto_temperatura"
-	humidity?: string;      // es"sensor.salotto_umidita"
+	temperature?: string;       // es "sensor.salotto_temperatura"
+	ambientHumidity?: string;   // es "sensor.salotto_umidita" (umidità dell'aria)
+	soilHumidity?: string;      // es "sensor.vaso_monstera_umidita_terreno"
+	// % sotto la quale il terreno è considerato troppo secco: vince sul programma a tempo.
+	soilHumidityThreshold?: number;
 }
 export interface PlantReadings {
 	temperature: number | null;
-	humidity: number | null;
+	ambientHumidity: number | null;
+	soilHumidity: number | null;
 	updatedAt: string;
 }
 

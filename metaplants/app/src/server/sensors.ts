@@ -17,16 +17,18 @@ export function getAllReadings(): Record<string, PlantReadings> {
 
 async function readPlant(plant: Plant): Promise<void> {
 	const s = plant.sensors;
-	if (!s?.temperature && !s?.humidity) return;
+	if (!s?.temperature && !s?.ambientHumidity && !s?.soilHumidity) return;
 
-	const [temp, hum] = await Promise.all([
+	const [temp, ambientHum, soilHum] = await Promise.all([
 		s?.temperature ? getEntityState(s.temperature) : Promise.resolve(null),
-		s?.humidity ? getEntityState(s.humidity) : Promise.resolve(null),
+		s?.ambientHumidity ? getEntityState(s.ambientHumidity) : Promise.resolve(null),
+		s?.soilHumidity ? getEntityState(s.soilHumidity) : Promise.resolve(null),
 	]);
 
 	const next: PlantReadings = {
 		temperature: temp?.value ?? null,
-		humidity: hum?.value ?? null,
+		ambientHumidity: ambientHum?.value ?? null,
+		soilHumidity: soilHum?.value ?? null,
 		updatedAt: new Date().toISOString(),
 	};
 
