@@ -67,7 +67,7 @@ function getStatus(lastAction: string | undefined, intervalDays: number): { over
 	const elapsedMs = Date.now() - new Date(lastAction).getTime();
 
 	if (isOverdue(lastAction, intervalDays)) {
-		if (elapsedMs - intervalMs < 24 * 60 * 60 * 1000) {
+		if (elapsedMs < 24 * 60 * 60 * 1000) {
 			return {
 				overdue: true,
 				label: `${t('status.hoursAgo').replace('{hours}', String(hoursAgo))} (${t('status.overdue')})`,

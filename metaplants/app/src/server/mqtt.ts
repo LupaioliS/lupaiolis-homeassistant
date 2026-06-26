@@ -368,7 +368,7 @@ function getActionStatus(lastAction: string | undefined, intervalDays: number, n
 	const intervalMs = intervalDays * DAY_MS;
 
 	if (elapsedMs >= intervalMs) {
-		if (elapsedMs - intervalMs < DAY_MS) {
+		if (elapsedMs < DAY_MS) {
 			return `${mt('status.hoursAgo', { hours: hoursAgo })} (${mt('status.overdue')})`;
 		}
 		return `${mt('status.daysAgo', { days: daysAgo })} (${mt('status.overdue')})`;
