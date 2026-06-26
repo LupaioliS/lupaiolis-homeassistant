@@ -5,13 +5,13 @@ import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
 import path from 'path';
 import { plantRoutes } from './routes/plants';
-import { connectMqtt, disconnectMqtt, publishAllPlants } from './mqtt';
+import { connectMqtt, disconnectMqtt, publishAllPlants, publishPlant } from './mqtt';
 import { store, UPLOADS_DIR, ensureUploadsDir } from './store';
 import { addClient } from './events';
 import { config } from './config';
 
-import { startHourlyScheduler, stopHourlyScheduler } from './scheduler';
-import { startSensorPolling, stopSensorPolling } from './sensors';
+import { startScheduler, stopScheduler } from './scheduler';
+import { startSensorPolling, stopSensorPolling, setOnReadingsUpdated } from './sensors';
 
 const fastify = Fastify({ logger: true });
 
@@ -64,7 +64,11 @@ async function start() {
 	try {
 		await connectMqtt();
 		publishAllPlants(store.getPlants());
-		startHourlyScheduler();
+		startScheduler();
+		// Republish a plant's MQTT state as soon as a fresh sensor reading comes in,
+		// so the frontend (SSE) and MQTT reflect the same data at the same time
+		// instead of waiting for the next scheduler tick.
+		setOnReadingsUpdated(publishPlant);
 	} catch (err) {
 		console.warn('[MQTT] Failed to connect, running without MQTT:', (err as Error).message);
 	}
@@ -78,7 +82,7 @@ async function start() {
 }
 
 async function shutdown() {
-	stopHourlyScheduler();
+	stopScheduler();
 	stopSensorPolling();
 	await disconnectMqtt();
 	process.exit(0);

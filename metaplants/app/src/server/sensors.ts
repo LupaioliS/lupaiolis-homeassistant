@@ -7,6 +7,15 @@ import { Plant, PlantReadings } from '../shared/types';
 const readings = new Map<string, PlantReadings>(); // plantId -> ultimi valori
 let timer: NodeJS.Timeout | null = null;
 
+// Iniettato da index.ts per evitare un import circolare con mqtt.ts: senza questo,
+// le letture sensori e il republish MQTT girano su due timer indipendenti e possono
+// disallinearsi fino a un intero ciclo di polling.
+let onReadingsUpdated: ((plant: Plant) => void) | null = null;
+
+export function setOnReadingsUpdated(callback: (plant: Plant) => void): void {
+	onReadingsUpdated = callback;
+}
+
 export function getReadings(plantId: string): PlantReadings | undefined {
 	return readings.get(plantId);
 }
@@ -34,6 +43,7 @@ async function readPlant(plant: Plant): Promise<void> {
 
 	readings.set(plant.id, next);
 	broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
+	onReadingsUpdated?.(plant);
 }
 
 async function pollOnce(): Promise<void> {

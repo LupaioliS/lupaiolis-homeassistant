@@ -2,9 +2,9 @@ import { store } from "./store";
 import { publishAllPlants } from "./mqtt";
 
 let timeout: NodeJS.Timeout | null = null;
-const HOURLY_INTERVAL_MS = 60 * 60 * 1000;
+const UPDATE_INTERVAL_MS = 60 * 1000;
 
-export function startHourlyScheduler(): void {
+export function startScheduler(): void {
     // Clear any existing timeout
     if (timeout) {
         clearTimeout(timeout);
@@ -13,22 +13,21 @@ export function startHourlyScheduler(): void {
     const tick = () => {
         try {
             publishAllPlants(store.getPlants());
-            console.log('[Scheduler] Hourly republish done');
         } catch(err) {
             console.error('[Scheduler] Publish failed:', (err as Error).message);
         }
 
-        timeout = setTimeout(tick, HOURLY_INTERVAL_MS);
+        timeout = setTimeout(tick, UPDATE_INTERVAL_MS);
 		timeout.unref();
     }
 
-	timeout = setTimeout(tick, HOURLY_INTERVAL_MS);
+	timeout = setTimeout(tick, UPDATE_INTERVAL_MS);
 	timeout.unref();
 
-    console.log(`[Scheduler] Started, next run in ${HOURLY_INTERVAL_MS} ms`);
+    console.log(`[Scheduler] Started, republishing every ${UPDATE_INTERVAL_MS} ms`);
 }
 
-export function stopHourlyScheduler(): void {
+export function stopScheduler(): void {
 	if (!timeout) return;
 	clearTimeout(timeout);
 	timeout = null;
