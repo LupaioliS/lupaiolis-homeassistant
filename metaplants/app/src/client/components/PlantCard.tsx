@@ -29,6 +29,32 @@ function getHoursAgo(dateStr?: string): number | null {
 	return Math.floor(diff / (1000 * 60 * 60));
 }
 
+// Stessa palette pastello dei pulsanti azione (.btn-water / .btn-fertilize): sfondo chiaro, testo scuro saturo.
+const SOIL_DRY_BG = [253, 230, 200]; // pastello marrone/secco (tipo .btn-fertilize)
+const SOIL_DRY_TEXT = [146, 64, 14];
+const SOIL_WET_BG = [219, 234, 254]; // pastello azzurro/bagnato (.btn-water)
+const SOIL_WET_TEXT = [29, 78, 216];
+
+function mixColor(a: number[], b: number[], ratio: number): string {
+	const [r, g, bch] = a.map((c, i) => Math.round(c + (b[i] - c) * ratio));
+	return `rgb(${r}, ${g}, ${bch})`;
+}
+
+// Pillola con sfondo a sfumatura: più ci si avvicina alla soglia di irrigazione, più vira dal pastello
+// azzurro (bagnato) al pastello marrone (secco), con un fade morbido invece di uno stacco netto.
+function getSoilHumidityStyle(value: number, threshold: number): { background: string; color: string } {
+	// 0 = al limite della soglia (secco), 1 = bagnato (soglia + 30 punti percentuali)
+	const wetReference = threshold + 30;
+	const ratio = Math.min(1, Math.max(0, (value - threshold) / (wetReference - threshold)));
+	const bgColor = mixColor(SOIL_DRY_BG, SOIL_WET_BG, ratio);
+	const bgColorSoft = mixColor(SOIL_DRY_BG, SOIL_WET_BG, Math.min(1, ratio + 0.15));
+	const textColor = mixColor(SOIL_DRY_TEXT, SOIL_WET_TEXT, ratio);
+	return {
+		background: `linear-gradient(135deg, ${bgColor}, ${bgColorSoft})`,
+		color: textColor,
+	};
+}
+
 function getStatus(lastAction: string | undefined, intervalDays: number): { overdue: boolean; label: string } {
 	if (!lastAction) return { overdue: true, label: t('status.neverDone') };
 
@@ -138,8 +164,15 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 	const season = getCurrentSeason();
 	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
 	const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
-	const waterStatus = getStatus(plant.lastWatered, waterIntervalDays);
 	const fertStatus = getStatus(plant.lastFertilized, fertIntervalDays);
+
+	const soilThreshold = plant.sensors?.soilHumidityThreshold;
+	const soilHumidity = readings?.soilHumidity;
+	const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
+	// Il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
+	const waterStatus = soilNeedsWater
+		? { overdue: true, label: t('status.soilSensorWater') }
+		: getStatus(plant.lastWatered, waterIntervalDays);
 
 	useEffect(() => {
 		api.getActions(plant.id)
@@ -292,14 +325,26 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 				</span>
 			</div>
 		
-			{readings && (readings.temperature !== null || readings.humidity !== null) && (
+			{readings && (readings.temperature !== null || readings.ambientHumidity !== null) && (
 				<div className="status">
 					{readings.temperature !== null && (
 						<span className="status-item ok">🌡️ {readings.temperature}°</span>
 					)}
-					{readings.humidity !== null && (
-						<span className="status-item ok">💦 {readings.humidity}%</span>
+					{readings.ambientHumidity !== null && (
+						<span className="status-item ok">💦 {readings.ambientHumidity}%</span>
 					)}
+				</div>
+			)}
+
+			{readings?.soilHumidity != null && (
+				<div className="status">
+					<span
+						className={`status-item soil-humidity-pill ${soilNeedsWater ? 'overdue' : ''}`}
+						style={soilThreshold != null ? getSoilHumidityStyle(readings.soilHumidity, soilThreshold) : undefined}
+						title={soilThreshold != null ? `${t('plant.soilHumidityThreshold')}: ${soilThreshold}%` : undefined}
+					>
+						🪴 {readings.soilHumidity}%
+					</span>
 				</div>
 			)}
 
