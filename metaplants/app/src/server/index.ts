@@ -65,10 +65,12 @@ async function start() {
 		await connectMqtt();
 		publishAllPlants(store.getPlants());
 		startHourlyScheduler();
-		startSensorPolling();
 	} catch (err) {
 		console.warn('[MQTT] Failed to connect, running without MQTT:', (err as Error).message);
 	}
+
+	// HA sensor polling is independent of MQTT — must start even if MQTT is unreachable.
+	startSensorPolling();
 
 	const port = Number(process.env.PORT) || 3000;
 	await fastify.listen({ port, host: '0.0.0.0' });
