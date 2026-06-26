@@ -42,6 +42,14 @@ export function App() {
 	// Real-time updates via SSE
 	useEffect(() => {
 		const evtSource = new EventSource(`${BASE_PATH}/api/events`);
+		// Il browser riconnette automaticamente dopo una caduta della connessione, ma
+		// gli eventi persi nel frattempo non vengono ritrasmessi: senza un resync qui,
+		// il frontend resta con dati stantii finché non arriva un nuovo evento o l'utente
+		// ricarica la pagina a mano. onopen scatta sia alla prima connessione che a ogni
+		// riconnessione, quindi un fetch completo qui copre entrambi i casi.
+		evtSource.onopen = () => {
+			loadPlants();
+		};
 		evtSource.onmessage = (event) => {
 			try {
 				const data = JSON.parse(event.data);

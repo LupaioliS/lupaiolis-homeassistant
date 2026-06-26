@@ -4,6 +4,18 @@ import type { IncomingMessage, ServerResponse } from 'http';
 type SSEClient = ServerResponse<IncomingMessage>;
 
 const clients = new Set<SSEClient>();
+const HEARTBEAT_MS = 20_000;
+
+// Senza un ping periodico, un proxy intermedio (es. l'ingress di Home Assistant) può
+// chiudere silenziosamente una connessione SSE idle, lasciando il browser convinto di
+// essere ancora connesso finché non tenta una scrittura — risultato: frontend bloccato
+// su dati stantii finché l'utente non ricarica la pagina a mano.
+const heartbeat = setInterval(() => {
+	for (const client of clients) {
+		client.write(':\n\n');
+	}
+}, HEARTBEAT_MS);
+heartbeat.unref();
 
 export function addClient(res: SSEClient) {
 	res.writeHead(200, {
