@@ -113,7 +113,11 @@ export function App() {
 	const getAttention = (plant: Plant) => {
 		const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, currentSeason, plant.wateringIntervalDays ?? 3);
 		const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, currentSeason, plant.fertilizingIntervalDays ?? 14);
-		const needsWater = isOverdue(plant.lastWatered, waterIntervalDays);
+		const soilThreshold = plant.sensors?.soilHumidityThreshold;
+		const soilHumidity = readings[plant.id]?.soilHumidity;
+		// Il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
+		const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
+		const needsWater = soilNeedsWater || isOverdue(plant.lastWatered, waterIntervalDays);
 		const needsFertilize = isOverdue(plant.lastFertilized, fertIntervalDays);
 		const activeIssueCount = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate).length;
 		return { needsWater, needsFertilize, activeIssueCount };
