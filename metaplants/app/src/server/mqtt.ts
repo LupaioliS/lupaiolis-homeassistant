@@ -4,6 +4,7 @@ import { store } from './store';
 import { broadcast } from './events';
 import { mt } from './i18n';
 import { config } from './config';
+import { getReadings } from './sensors';
 
 const MQTT_URL = config.mqttUrl;
 const MQTT_USER = config.mqttUser;
@@ -302,8 +303,13 @@ function publishState(plant: Plant) {
 	const wateringIntervalDays = getSeasonalInterval(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
 	const fertilizingIntervalDays = getSeasonalInterval(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 
-	// Watering state
-	const waterState = getActionStatus(plant.lastWatered, wateringIntervalDays, 'watering.never');
+	// Watering state — il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
+	const soilThreshold = plant.sensors?.soilHumidityThreshold;
+	const soilHumidity = getReadings(plant.id)?.soilHumidity;
+	const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
+	const waterState = soilNeedsWater
+		? mt('status.soilSensorWater')
+		: getActionStatus(plant.lastWatered, wateringIntervalDays, 'watering.never');
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState, { retain: true });
 
 	// Fertilizing state
