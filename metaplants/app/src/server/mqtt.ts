@@ -205,6 +205,70 @@ function publishDiscovery(plant: Plant) {
 		{ retain: true }
 	);
 
+	// Next watering date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/watering_next/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.watering_next')}`,
+			object_id: `${slug}_watering_next`,
+			unique_id: `${deviceId}_watering_next`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/watering_next`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:watering-can',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Next fertilizing date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/fertilizing_next/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.fertilizing_next')}`,
+			object_id: `${slug}_fertilizing_next`,
+			unique_id: `${deviceId}_fertilizing_next`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/fertilizing_next`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:bottle-tonic',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Last repotted date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/repotting_last/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.repotting_last')}`,
+			object_id: `${slug}_repotting_last`,
+			unique_id: `${deviceId}_repotting_last`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/repotting_last`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:flower-pollen',
+			availability,
+		}),
+		{ retain: true }
+	);
+
+	// Last pruned date sensor (for automations)
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/pruning_last/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.pruning_last')}`,
+			object_id: `${slug}_pruning_last`,
+			unique_id: `${deviceId}_pruning_last`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/pruning_last`,
+			device_class: 'timestamp',
+			device,
+			icon: 'mdi:content-cut',
+			availability,
+		}),
+		{ retain: true }
+	);
+
 	// Health sensor
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/health/config`,
@@ -320,6 +384,20 @@ function publishState(plant: Plant) {
 	const pruneState = pruneDays === null ? mt('pruning.never') : mt('pruning.daysAgo', { days: pruneDays });
 	client.publish(`${TOPIC_PREFIX}/plant/${slug}/pruning`, pruneState, { retain: true });
 
+	// Next watering/fertilizing dates, last repotted/pruned dates — for automations (ISO 8601, device_class timestamp)
+	const nextWatering = plant.lastWatered
+		? new Date(new Date(plant.lastWatered).getTime() + wateringIntervalDays * DAY_MS).toISOString()
+		: '';
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/watering_next`, nextWatering, { retain: true });
+
+	const nextFertilizing = plant.lastFertilized
+		? new Date(new Date(plant.lastFertilized).getTime() + fertilizingIntervalDays * DAY_MS).toISOString()
+		: '';
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/fertilizing_next`, nextFertilizing, { retain: true });
+
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/repotting_last`, plant.lastRepotted || '', { retain: true });
+	client.publish(`${TOPIC_PREFIX}/plant/${slug}/pruning_last`, plant.lastPruned || '', { retain: true });
+
 	// Health state
 	const activeIssues = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate);
 	const healthState = activeIssues.length === 0 ? mt('health.healthy') : mt('health.issues', { count: activeIssues.length });
@@ -382,7 +460,7 @@ export function removePlant(plant: Plant) {
 	discoveredPlants.delete(plant.id);
 
 	// Remove discovery configs
-	const sensorTypes = ['watering', 'fertilizing', 'repotting', 'pruning', 'health'];
+	const sensorTypes = ['watering', 'fertilizing', 'repotting', 'pruning', 'health', 'watering_next', 'fertilizing_next', 'repotting_last', 'pruning_last'];
 	for (const type of sensorTypes) {
 		client.publish(`${DISCOVERY_PREFIX}/sensor/${deviceId}/${type}/config`, '', { retain: true });
 	}
@@ -392,7 +470,7 @@ export function removePlant(plant: Plant) {
 	}
 
 	// Remove state topics
-	const stateTopics = ['watering', 'fertilizing', 'repotting', 'pruning', 'health', 'health_attributes', 'attributes'];
+	const stateTopics = ['watering', 'fertilizing', 'repotting', 'pruning', 'health', 'health_attributes', 'attributes', 'watering_next', 'fertilizing_next', 'repotting_last', 'pruning_last'];
 	for (const t of stateTopics) {
 		client.publish(`${TOPIC_PREFIX}/plant/${slug}/${t}`, '', { retain: true });
 	}
