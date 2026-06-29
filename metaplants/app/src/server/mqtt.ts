@@ -363,15 +363,16 @@ function getActionStatus(lastAction: string | undefined, intervalDays: number, n
 	if (!lastAction) return mt(neverKey);
 
 	const elapsedMs = Date.now() - new Date(lastAction).getTime();
-	const daysAgo = Math.floor(elapsedMs / DAY_MS);
-	const hoursAgo = Math.floor(elapsedMs / HOUR_MS);
 	const intervalMs = intervalDays * DAY_MS;
 
 	if (elapsedMs >= intervalMs) {
-		if (elapsedMs < DAY_MS) {
-			return `${mt('status.hoursAgo', { hours: hoursAgo })} (${mt('status.overdue')})`;
+		const overdueMs = elapsedMs - intervalMs;
+		if (overdueMs < DAY_MS) {
+			const overdueHours = Math.max(1, Math.floor(overdueMs / HOUR_MS));
+			return `${mt('status.hoursAgo', { hours: overdueHours })} (${mt('status.overdue')})`;
 		}
-		return `${mt('status.daysAgo', { days: daysAgo })} (${mt('status.overdue')})`;
+		const overdueDays = Math.floor(overdueMs / DAY_MS);
+		return `${mt('status.daysAgo', { days: overdueDays })} (${mt('status.overdue')})`;
 	}
 
 	const remainingMs = intervalMs - elapsedMs;

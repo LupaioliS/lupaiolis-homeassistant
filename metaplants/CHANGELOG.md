@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.1
+
+- Fix the "overdue by X days/hours" label still counting from the last action instead of from when the item actually became overdue
+
 ## 1.8.0
 
 - Add an optional soil moisture sensor per plant: set its entity_id and a dry threshold, and a reading at or below that threshold overrides the time-based schedule and marks the plant as needing water right away
