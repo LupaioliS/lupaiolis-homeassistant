@@ -58,4 +58,6 @@ export const api = {
 	syncMqtt: () => request<{ success: boolean }>('/mqtt/sync', { method: 'POST' }),
 	
 	getReadings: () => request<Record<string, PlantReadings>>('/readings'),
+	acknowledgeSoilJump: (plantId: string) =>
+		request<{ success: boolean }>(`/plants/${encodeURIComponent(plantId)}/ack-soil-jump`, { method: 'POST' }),
 };

@@ -8,6 +8,8 @@ interface ActionDialogProps {
 	type: ActionDialogType;
 	plant: Plant;
 	defaultValue?: number;
+	titleOverride?: string;
+	subtitle?: string;
 	onConfirm: (value: number) => void | Promise<void>;
 	onClose: () => void;
 }
@@ -21,7 +23,7 @@ const POT_MAX_CM = 60;
 const POT_MIN_SCALE = 0.55;
 const POT_MAX_SCALE = 1.5;
 
-export function ActionDialog({ type, plant, defaultValue, onConfirm, onClose }: ActionDialogProps) {
+export function ActionDialog({ type, plant, defaultValue, titleOverride, subtitle, onConfirm, onClose }: ActionDialogProps) {
 	const fallback =
 		type === 'water' ? WATER_DEFAULT_ML
 		: type === 'fertilize' ? FERTILIZE_DEFAULT_G
@@ -38,10 +40,11 @@ export function ActionDialog({ type, plant, defaultValue, onConfirm, onClose }: 
 		}
 	};
 
-	const title =
+	const title = titleOverride ?? (
 		type === 'water' ? t('actions.waterTitle')
 		: type === 'fertilize' ? t('actions.fertilizeTitle')
-		: t('actions.repotTitle');
+		: t('actions.repotTitle')
+	);
 
 	const verticalRangeProps = { orient: 'vertical' } as React.InputHTMLAttributes<HTMLInputElement>;
 
@@ -51,6 +54,7 @@ export function ActionDialog({ type, plant, defaultValue, onConfirm, onClose }: 
 		<div className="modal-overlay" onClick={onClose}>
 			<div className="modal action-dialog" onClick={(e) => e.stopPropagation()}>
 				<h2>{title}</h2>
+				{subtitle && <p className="action-dialog-subtitle">{subtitle}</p>}
 
 				{type === 'water' && (
 					<div className="droplet-slider-wrap">

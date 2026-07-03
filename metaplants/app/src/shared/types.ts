@@ -39,6 +39,11 @@ export interface PlantSensors {
 	soilHumidity?: string;      // es "sensor.vaso_monstera_umidita_terreno"
 	// % sotto la quale il terreno è considerato troppo secco: vince sul programma a tempo.
 	soilHumidityThreshold?: number;
+	// Ultima lettura persistita del sensore terreno (aggiornata ad ogni poll).
+	lastSoilHumidity?: number;
+	// Il server ha rilevato un salto improvviso di umidità (probabile irrigazione):
+	// il client mostra il prompt e poi chiama ack-soil-jump per azzerare questo flag.
+	soilJumpPendingAck?: boolean;
 }
 export interface PlantReadings {
 	temperature: number | null;

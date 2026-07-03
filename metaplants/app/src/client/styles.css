@@ -366,6 +366,13 @@ header h1 {
 }
 
 /* Action amount dialog (water / fertilize / repot) */
+.action-dialog-subtitle {
+  font-size: 0.9rem;
+  color: #555;
+  margin: -8px 0 16px;
+  line-height: 1.4;
+}
+
 .action-dialog .slider-value {
   text-align: center;
   font-weight: 600;

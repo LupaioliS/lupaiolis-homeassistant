@@ -1,7 +1,10 @@
 import { store } from './store';
 import { getEntityState, isHaAvailable } from './homeassistant';
 import { broadcast } from './events';
-import { Plant, PlantReadings } from '../shared/types';
+import { Plant, PlantReadings, PlantSensors } from '../shared/types';
+
+// Minimum % above threshold to consider a jump (plant likely received water)
+const SOIL_JUMP_DELTA = 20;
 
 
 const readings = new Map<string, PlantReadings>(); // plantId -> ultimi valori
@@ -44,6 +47,32 @@ async function readPlant(plant: Plant): Promise<void> {
 	readings.set(plant.id, next);
 	broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
 	onReadingsUpdated?.(plant);
+
+	// Persist soil reading and detect jumps server-side
+	if (s.soilHumidity && soilHum?.value != null) {
+		const current = soilHum.value;
+		const threshold = s.soilHumidityThreshold;
+		const prev = s.lastSoilHumidity;
+
+		const jumped =
+			threshold != null &&
+			prev != null &&
+			prev <= threshold &&
+			current >= threshold + SOIL_JUMP_DELTA &&
+			!s.soilJumpPendingAck; // don't re-detect if already awaiting ack
+
+		const updatedSensors: PlantSensors = {
+			...s,
+			lastSoilHumidity: current,
+			...(jumped ? { soilJumpPendingAck: true } : {}),
+		};
+
+		const updated = store.updatePlant(plant.id, { sensors: updatedSensors });
+		if (updated && jumped) {
+			broadcast({ type: 'soil-humidity-jumped', plantId: plant.id });
+			broadcast({ type: 'plant-updated', plant: updated });
+		}
+	}
 }
 
 async function pollOnce(): Promise<void> {

@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Plant, PlantReadings } from '../shared/types';
 import { api } from './api';
 import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
+import { ActionDialog } from './components/ActionDialog';
 import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
 import { getIntervalForSeason, isOverdue } from './plantStatus';
@@ -20,6 +21,10 @@ export function App() {
 	const [readings, setReadings] = useState<Record<string, PlantReadings>>({});
 	const [searchTerm, setSearchTerm] = useState('');
 	const [sortBy, setSortBy] = useState<SortOption>('name');
+	const [soilWaterQueue, setSoilWaterQueue] = useState<Plant[]>([]);
+	// Ref keeps SSE handler (captured with [] deps) in sync with current plants state
+	const plantsRef = useRef<Plant[]>([]);
+	useEffect(() => { plantsRef.current = plants; }, [plants]);
 
 	useEffect(() => {
 		initLocale().then(() => setReady(true));
@@ -33,6 +38,10 @@ export function App() {
 		]);
 		setPlants(data);
 		setReadings(initialReadings);
+
+		// Prompt for plants whose soil sensor jumped while the app was closed (server-persisted flag)
+		const jumped = data.filter((p) => p.sensors?.soilJumpPendingAck === true);
+		if (jumped.length > 0) setSoilWaterQueue(jumped);
 	}, []);
 
 	useEffect(() => {
@@ -65,6 +74,14 @@ export function App() {
 					});
 				} else if (data.type === 'plant-deleted') {
 					setPlants((prev) => prev.filter((p) => p.id !== data.plantId));
+				} else if (data.type === 'soil-humidity-jumped') {
+					// Real-time jump detection: app is open when soil sensor jumps
+					const plant = plantsRef.current.find((p) => p.id === data.plantId);
+					if (plant) {
+						setSoilWaterQueue((prev) =>
+							prev.some((p) => p.id === plant.id) ? prev : [...prev, plant]
+						);
+					}
 				} else if (data.type === 'plant-readings') {
 					setReadings((prev) => ({ ...prev, [data.plantId]: data.readings }));
 				}
@@ -81,6 +98,20 @@ export function App() {
 		const now = new Date().toISOString();
 		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastWatered: now } : p)));
 		api.logAction(id, 'water', { amountMl }).catch(loadPlants);
+	};
+
+	const handleSoilQueueConfirm = async (amountMl: number) => {
+		const plant = soilWaterQueue[0];
+		if (!plant) return;
+		await handleWater(plant.id, amountMl);
+		api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
+		setSoilWaterQueue((prev) => prev.slice(1));
+	};
+
+	const handleSoilQueueSkip = () => {
+		const plant = soilWaterQueue[0];
+		if (plant) api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
+		setSoilWaterQueue((prev) => prev.slice(1));
 	};
 
 	const handleFertilize = async (id: string, amountGrams: number) => {
@@ -259,6 +290,17 @@ export function App() {
 						/>
 					))}
 				</div>
+			)}
+
+			{soilWaterQueue.length > 0 && (
+				<ActionDialog
+					type="water"
+					plant={soilWaterQueue[0]}
+					titleOverride={t('actions.soilJumpTitle')}
+					subtitle={t('actions.soilJumpPrompt').replace('{name}', soilWaterQueue[0].nickname || soilWaterQueue[0].name)}
+					onConfirm={handleSoilQueueConfirm}
+					onClose={handleSoilQueueSkip}
+				/>
 			)}
 
 			{showForm && (

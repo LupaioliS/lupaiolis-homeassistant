@@ -58,6 +58,9 @@ export const it = {
 		repotTitle: 'Nuova dimensione vaso',
 		waterMax: 'Max — l\'acqua esce dal fondo',
 		confirm: 'Conferma',
+		skip: 'Salta',
+		soilJumpTitle: 'Acqua ricevuta?',
+		soilJumpPrompt: 'Il sensore di {name} indica un aumento improvviso dell\'umidità del terreno. Hai innaffiato?',
 	},
 	status: {
 		neverDone: 'Mai fatto',

@@ -58,6 +58,9 @@ export const en = {
 		repotTitle: 'New pot size',
 		waterMax: 'Max — water exits from the bottom',
 		confirm: 'Confirm',
+		skip: 'Skip',
+		soilJumpTitle: 'Water received?',
+		soilJumpPrompt: 'The soil sensor on {name} shows a sudden humidity increase. Did you water it?',
 	},
 	status: {
 		neverDone: 'Never done',

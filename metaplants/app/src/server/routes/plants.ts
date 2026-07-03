@@ -234,4 +234,17 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	fastify.get('/readings', async () => getAllReadings());
+
+	// Acknowledge a pending soil-jump prompt (user confirmed or skipped)
+	fastify.post<{ Params: { id: string } }>('/plants/:id/ack-soil-jump', async (request, reply) => {
+		const plant = store.getPlant(request.params.id);
+		if (!plant) return reply.status(404).send({ error: 'Plant not found' });
+		if (!plant.sensors) return reply.status(400).send({ error: 'No sensors configured' });
+		const updated = store.updatePlant(plant.id, {
+			sensors: { ...plant.sensors, soilJumpPendingAck: false },
+		});
+		if (!updated) return reply.status(404).send({ error: 'Plant not found' });
+		broadcast({ type: 'plant-updated', plant: updated });
+		return { success: true };
+	});
 };
