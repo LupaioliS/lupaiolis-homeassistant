@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.0
+
+- When the soil humidity sensor jumps significantly above the configured threshold (e.g. after rain or someone else watering), the server detects the change during its polling cycle and flags the plant as having a pending prompt
+- On app load (or SSE reconnect), a sequential dialog appears for each affected plant asking whether it was watered, with the usual ml slider to log the amount
+- Confirming logs the water action; skipping or cancelling dismisses the dialog without recording anything
+- The pending flag is stored server-side in `plants.json` so it survives browser cache clears, device switches, and server restarts — no reliance on localStorage
+
 ## 1.8.1
 
 - Fix the "overdue by X days/hours" label still counting from the last action instead of from when the item actually became overdue
