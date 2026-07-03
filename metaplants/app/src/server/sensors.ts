@@ -61,9 +61,12 @@ async function readPlant(plant: Plant): Promise<void> {
 			current >= threshold + SOIL_JUMP_DELTA &&
 			!s.soilJumpPendingAck; // don't re-detect if already awaiting ack
 
+		// Only update the "last dry" reference when the soil is at or below threshold.
+		// This way a gradual rise (30→35→60→99) is still detected: the reference
+		// stays at the last dry reading until the threshold+delta is crossed.
 		const updatedSensors: PlantSensors = {
 			...s,
-			lastSoilHumidity: current,
+			...(threshold == null || current <= threshold ? { lastSoilHumidity: current } : {}),
 			...(jumped ? { soilJumpPendingAck: true } : {}),
 		};
 
