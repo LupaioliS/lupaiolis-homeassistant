@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.1
+
+- Fix soil jump detection missing gradual sensor rises (e.g. 30%→35%→60%→99%): the reference reading is now only updated while the soil is at or below the threshold, so any eventual rise above threshold+20% is correctly detected regardless of how many intermediate readings occur
+
 ## 1.9.0
 
 - When the soil humidity sensor jumps significantly above the configured threshold (e.g. after rain or someone else watering), the server detects the change during its polling cycle and flags the plant as having a pending prompt
