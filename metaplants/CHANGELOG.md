@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.2
+
+- Fix soil jump prompt reappearing on every poll after confirming: acknowledging now re-baselines the reference reading to the current (wet) value instead of leaving it at the old dry one
+- Soil jump prompt is skipped (and auto-acknowledged) for plants already watered today, matching the existing "done today" lock on the water button
+- Swap the force-action button icon from a refresh-like ⟳ to 🔓, since it read as "undo" rather than "override"
+
 ## 1.9.1
 
 - Fix soil jump detection missing gradual sensor rises (e.g. 30%→35%→60%→99%): the reference reading is now only updated while the soil is at or below the threshold, so any eventual rise above threshold+20% is correctly detected regardless of how many intermediate readings occur
