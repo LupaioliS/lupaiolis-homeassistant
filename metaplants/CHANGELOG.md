@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.3
+
+- Keep a rolling history of the last 10 readings per sensor (temperature, ambient humidity, soil humidity) in `plants.json`, for future use such as trend charts
+
 ## 1.9.2
 
 - Fix soil jump prompt reappearing on every poll after confirming: acknowledging now re-baselines the reference reading to the current (wet) value instead of leaving it at the old dry one
