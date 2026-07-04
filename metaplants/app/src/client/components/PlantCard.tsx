@@ -100,7 +100,7 @@ function formatDate(dateStr?: string): string {
 	return new Date(dateStr).toLocaleDateString();
 }
 
-function isDoneToday(dateStr?: string): boolean {
+export function isDoneToday(dateStr?: string): boolean {
 	if (!dateStr) return false;
 	const today = new Date().toISOString().split('T')[0];
 	return dateStr.split('T')[0] === today;
@@ -146,7 +146,7 @@ function ActionButton({ disabled: initialDisabled, className, onClick, label }: 
 	return (
 		<div className="action-btn-wrapper">
 			<button className={`${className} is-disabled`} disabled>{label} ✓</button>
-			<button className="btn-force" onClick={() => setForced(true)} title="Forza">⟳</button>
+			<button className="btn-force" onClick={() => setForced(true)} title="Forza">🔓</button>
 		</div>
 	);
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Plant, PlantReadings } from '../shared/types';
 import { api } from './api';
-import { PlantCard } from './components/PlantCard';
+import { PlantCard, isDoneToday } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { ActionDialog } from './components/ActionDialog';
 import { t, initLocale } from './i18n';
@@ -39,9 +39,13 @@ export function App() {
 		setPlants(data);
 		setReadings(initialReadings);
 
-		// Prompt for plants whose soil sensor jumped while the app was closed (server-persisted flag)
+		// Prompt for plants whose soil sensor jumped while the app was closed (server-persisted flag).
+		// Plants already watered today don't need the prompt — auto-acknowledge those instead of asking again.
 		const jumped = data.filter((p) => p.sensors?.soilJumpPendingAck === true);
-		if (jumped.length > 0) setSoilWaterQueue(jumped);
+		const alreadyWatered = jumped.filter((p) => isDoneToday(p.lastWatered));
+		alreadyWatered.forEach((p) => api.acknowledgeSoilJump(p.id).catch(() => {/* best-effort */}));
+		const toPrompt = jumped.filter((p) => !isDoneToday(p.lastWatered));
+		if (toPrompt.length > 0) setSoilWaterQueue(toPrompt);
 	}, []);
 
 	useEffect(() => {
@@ -77,7 +81,9 @@ export function App() {
 				} else if (data.type === 'soil-humidity-jumped') {
 					// Real-time jump detection: app is open when soil sensor jumps
 					const plant = plantsRef.current.find((p) => p.id === data.plantId);
-					if (plant) {
+					if (plant && isDoneToday(plant.lastWatered)) {
+						api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
+					} else if (plant) {
 						setSoilWaterQueue((prev) =>
 							prev.some((p) => p.id === plant.id) ? prev : [...prev, plant]
 						);
