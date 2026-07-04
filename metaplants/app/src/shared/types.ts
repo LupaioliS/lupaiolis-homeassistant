@@ -44,6 +44,11 @@ export interface PlantSensors {
 	// Il server ha rilevato un salto improvviso di umidità (probabile irrigazione):
 	// il client mostra il prompt e poi chiama ack-soil-jump per azzerare questo flag.
 	soilJumpPendingAck?: boolean;
+	// Ultime fino a 10 letture grezze per sensore (la più recente in fondo all'array),
+	// aggiornate ad ogni poll indipendentemente dalla logica di jump detection.
+	temperatureHistory?: number[];
+	ambientHumidityHistory?: number[];
+	soilHumidityHistory?: number[];
 }
 export interface PlantReadings {
 	temperature: number | null;

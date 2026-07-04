@@ -6,6 +6,14 @@ import { Plant, PlantReadings, PlantSensors } from '../shared/types';
 // Minimum % above threshold to consider a jump (plant likely received water)
 const SOIL_JUMP_DELTA = 20;
 
+// How many past readings to keep per sensor for future use (e.g. trend charts)
+const HISTORY_LENGTH = 10;
+
+function appendHistory(history: number[] | undefined, value: number): number[] {
+	const next = [...(history ?? []), value];
+	return next.length > HISTORY_LENGTH ? next.slice(next.length - HISTORY_LENGTH) : next;
+}
+
 
 const readings = new Map<string, PlantReadings>(); // plantId -> ultimi valori
 let timer: NodeJS.Timeout | null = null;
@@ -48,28 +56,42 @@ async function readPlant(plant: Plant): Promise<void> {
 	broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
 	onReadingsUpdated?.(plant);
 
-	// Persist soil reading and detect jumps server-side
+	// Persist per-sensor history, and detect soil jumps server-side
+	const updatedSensors: PlantSensors = { ...s };
+	let sensorsChanged = false;
+
+	if (s.temperature && temp?.value != null) {
+		updatedSensors.temperatureHistory = appendHistory(s.temperatureHistory, temp.value);
+		sensorsChanged = true;
+	}
+	if (s.ambientHumidity && ambientHum?.value != null) {
+		updatedSensors.ambientHumidityHistory = appendHistory(s.ambientHumidityHistory, ambientHum.value);
+		sensorsChanged = true;
+	}
+
+	let jumped = false;
 	if (s.soilHumidity && soilHum?.value != null) {
 		const current = soilHum.value;
 		const threshold = s.soilHumidityThreshold;
 		const prev = s.lastSoilHumidity;
 
-		const jumped =
+		jumped =
 			threshold != null &&
 			prev != null &&
 			prev <= threshold &&
 			current >= threshold + SOIL_JUMP_DELTA &&
 			!s.soilJumpPendingAck; // don't re-detect if already awaiting ack
 
+		updatedSensors.soilHumidityHistory = appendHistory(s.soilHumidityHistory, current);
 		// Only update the "last dry" reference when the soil is at or below threshold.
 		// This way a gradual rise (30→35→60→99) is still detected: the reference
 		// stays at the last dry reading until the threshold+delta is crossed.
-		const updatedSensors: PlantSensors = {
-			...s,
-			...(threshold == null || current <= threshold ? { lastSoilHumidity: current } : {}),
-			...(jumped ? { soilJumpPendingAck: true } : {}),
-		};
+		if (threshold == null || current <= threshold) updatedSensors.lastSoilHumidity = current;
+		if (jumped) updatedSensors.soilJumpPendingAck = true;
+		sensorsChanged = true;
+	}
 
+	if (sensorsChanged) {
 		const updated = store.updatePlant(plant.id, { sensors: updatedSensors });
 		if (updated && jumped) {
 			broadcast({ type: 'soil-humidity-jumped', plantId: plant.id });
