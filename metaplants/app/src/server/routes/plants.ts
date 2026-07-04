@@ -7,7 +7,7 @@ import type { SeasonalSchedule, Season, PlantSensors } from '../../shared/types'
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
-import { getAllReadings, refreshPlantReadings } from '../sensors';
+import { getAllReadings, getReadings, refreshPlantReadings } from '../sensors';
 
 const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/jpeg': '.jpg',
@@ -240,8 +240,16 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const plant = store.getPlant(request.params.id);
 		if (!plant) return reply.status(404).send({ error: 'Plant not found' });
 		if (!plant.sensors) return reply.status(400).send({ error: 'No sensors configured' });
+		// Re-baseline lastSoilHumidity to the current reading so the still-wet soil
+		// (post-watering) isn't compared against the old pre-jump "dry" value again
+		// on the next poll, which would re-trigger the same jump immediately.
+		const currentSoil = getReadings(plant.id)?.soilHumidity;
 		const updated = store.updatePlant(plant.id, {
-			sensors: { ...plant.sensors, soilJumpPendingAck: false },
+			sensors: {
+				...plant.sensors,
+				soilJumpPendingAck: false,
+				...(currentSoil != null ? { lastSoilHumidity: currentSoil } : {}),
+			},
 		});
 		if (!updated) return reply.status(404).send({ error: 'Plant not found' });
 		broadcast({ type: 'plant-updated', plant: updated });
