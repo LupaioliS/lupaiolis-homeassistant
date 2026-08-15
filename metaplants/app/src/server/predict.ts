@@ -1,6 +1,6 @@
 import type { Plant, PlantAction, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
 import { DAY_MS, HOUR_MS, getSeasonForDate, getCurrentSeason } from '../shared/schedule';
-import { getSamples, type Sample } from './history';
+import { getSamples, samplePeak, type Sample } from './history';
 
 /**
  * Stima "fatta in casa" di quando la pianta andrà innaffiata.
@@ -38,6 +38,17 @@ function median(values: number[]): number {
 	const sorted = [...values].sort((a, b) => a - b);
 	const mid = Math.floor(sorted.length / 2);
 	return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+/** Percentile con interpolazione lineare; con un solo valore restituisce quello. */
+function percentile(values: number[], p: number): number {
+	const sorted = [...values].sort((a, b) => a - b);
+	if (sorted.length === 1) return sorted[0];
+	const position = (sorted.length - 1) * p;
+	const lower = Math.floor(position);
+	const upper = Math.ceil(position);
+	if (lower === upper) return sorted[lower];
+	return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -123,25 +134,32 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number): S
 	const wetCandidates: number[] = [];
 
 	for (const w of waterings) {
+		// L'istante registrato non coincide con l'irrigazione vera: col prompt
+		// "hai innaffiato?" l'azione viene salvata quando il sensore è GIÀ salito.
+		// Perciò il secco è il minimo della finestra precedente (non l'ultima lettura,
+		// che potrebbe essere già bagnata) e il picco si cerca anche poco prima di w.
 		const before = soil.filter((s) => s.t <= w && s.t >= w - DRY_LOOKBACK_MS);
-		if (before.length > 0) dryCandidates.push(before[before.length - 1].v);
+		if (before.length > 0) dryCandidates.push(Math.min(...before.map((s) => s.v)));
 
-		const after = soil.filter((s) => s.t > w && s.t <= w + WET_PEAK_WINDOW_MS);
-		if (after.length > 0) wetCandidates.push(Math.max(...after.map((s) => s.v)));
+		const around = soil.filter((s) => s.t >= w - DRY_LOOKBACK_MS && s.t <= w + WET_PEAK_WINDOW_MS);
+		if (around.length > 0) wetCandidates.push(Math.max(...around.map(samplePeak)));
 	}
 
 	if (dryCandidates.length === 0) {
 		// Nessuna irrigazione osservata dal sensore: si ripiega sulla soglia impostata a mano.
 		if (fallbackDry == null || soil.length === 0) return null;
-		const observedPeak = Math.max(...soil.map((s) => s.v));
+		const observedPeak = Math.max(...soil.map(samplePeak));
 		if (observedPeak - fallbackDry < MIN_CALIBRATION_SPAN) return null;
 		return { dryPoint: round(fallbackDry), wetPoint: round(observedPeak), samples: 0 };
 	}
 
 	const dryPoint = median(dryCandidates);
+	// "Pieno" è per natura un estremo, non una media: una bagnata abbondante conta
+	// più di un rabbocco. Con pochi cicli il 75° percentile è il picco più alto;
+	// con molti, una singola lettura anomala non fissa il 100% per sempre.
 	const wetPoint = wetCandidates.length > 0
-		? median(wetCandidates)
-		: Math.max(...soil.map((s) => s.v));
+		? percentile(wetCandidates, 0.75)
+		: Math.max(...soil.map(samplePeak));
 
 	if (wetPoint - dryPoint < MIN_CALIBRATION_SPAN) return null;
 

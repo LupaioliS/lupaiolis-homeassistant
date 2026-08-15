@@ -95,7 +95,10 @@ function formatPredictionEta(prediction: WateringPrediction): string {
 	return t('prediction.inDays').replace('{days}', String(Math.round(prediction.daysLeft)));
 }
 
-function buildPredictionTooltip(prediction: WateringPrediction): string {
+// I dettagli sono restituiti come righe separate, non come stringa già unita:
+// finiscono sia nel `title` (mouse) sia nel pannello che si apre al tocco, visto
+// che sul telefono il long press non mostra i tooltip.
+function buildPredictionInfo(prediction: WateringPrediction): string[] {
 	const lines = [
 		`${t('prediction.next')}: ${formatDateTime(new Date(prediction.nextWateringAt).getTime())}`,
 		`${t('prediction.confidence')}: ${t(`prediction.confidence_${prediction.confidence}`)}`,
@@ -109,17 +112,58 @@ function buildPredictionTooltip(prediction: WateringPrediction): string {
 	if (prediction.cycles > 0) {
 		lines.push(t('prediction.learnedFrom').replace('{count}', String(prediction.cycles)));
 	}
-	return lines.join('\n');
+	return lines;
 }
 
-function buildCalibrationTooltip(prediction: WateringPrediction): string | undefined {
+function buildCalibrationInfo(prediction: WateringPrediction): string[] {
 	const calibration = prediction.calibration;
-	if (!calibration) return undefined;
+	if (!calibration) return [];
 	return [
 		t('prediction.calibrationTitle'),
 		t('prediction.calibrationDry').replace('{value}', String(calibration.dryPoint)),
 		t('prediction.calibrationWet').replace('{value}', String(calibration.wetPoint)),
-	].join('\n');
+	];
+}
+
+/**
+ * Pillola con dettagli: al passaggio del mouse li mostra come tooltip, al
+ * tocco/click apre il pannello sotto. Senza dettagli resta uno span normale.
+ */
+function InfoPill({ id, className, style, lines, openId, onToggle, innerRef, children }: {
+	id: string;
+	className: string;
+	style?: React.CSSProperties;
+	lines: string[];
+	openId: string | null;
+	onToggle: (id: string | null) => void;
+	innerRef?: React.RefObject<HTMLSpanElement | null>;
+	children: React.ReactNode;
+}) {
+	if (lines.length === 0) {
+		return <span ref={innerRef} className={className} style={style}>{children}</span>;
+	}
+	const isOpen = openId === id;
+	const toggle = () => onToggle(isOpen ? null : id);
+	return (
+		<span
+			ref={innerRef}
+			className={`${className} has-info${isOpen ? ' is-open' : ''}`}
+			style={style}
+			title={lines.join('\n')}
+			role="button"
+			tabIndex={0}
+			aria-expanded={isOpen}
+			onClick={toggle}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') {
+					e.preventDefault();
+					toggle();
+				}
+			}}
+		>
+			{children}
+		</span>
+	);
 }
 
 export function isDoneToday(dateStr?: string): boolean {
@@ -184,6 +228,8 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 	const [productReason, setProductReason] = useState('');
 	const [activeDialog, setActiveDialog] = useState<ActionDialogType | null>(null);
 	const [localActions, setLocalActions] = useState<PlantAction[]>([]);
+	// Pillola di cui è aperto il pannello dei dettagli (equivalente al tooltip, ma toccabile).
+	const [openInfo, setOpenInfo] = useState<string | null>(null);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const waterPillRef = useRef<HTMLSpanElement>(null);
 	const waterButtonRef = useRef<HTMLDivElement>(null);
@@ -214,12 +260,28 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 			? { overdue: water.overdue, label: `🧠 ${formatPredictionEta(prediction)}`, dueAt: scheduleStatus.dueAt }
 			: scheduleStatus;
 
-	const waterTitle = [
-		water.source === 'prediction' && prediction ? buildPredictionTooltip(prediction) : null,
-		scheduleStatus.dueAt != null
-			? `${t('status.scheduleDue')}: ${formatDateTime(scheduleStatus.dueAt)}`
-			: null,
-	].filter(Boolean).join('\n') || undefined;
+	const waterInfo = [
+		...(water.source === 'prediction' && prediction ? buildPredictionInfo(prediction) : []),
+		...(scheduleStatus.dueAt != null ? [`${t('status.scheduleDue')}: ${formatDateTime(scheduleStatus.dueAt)}`] : []),
+	];
+	const fertInfo = fertStatus.dueAt != null
+		? [`${t('status.scheduleDue')}: ${formatDateTime(fertStatus.dueAt)}`]
+		: [];
+	const soilInfo = [
+		...(soilThreshold != null ? [`${t('plant.soilHumidityThreshold')}: ${soilThreshold}%`] : []),
+		...(prediction ? buildCalibrationInfo(prediction) : []),
+	];
+	const calibratedInfo = prediction ? buildCalibrationInfo(prediction) : [];
+	const predictionInfo = prediction ? buildPredictionInfo(prediction) : [];
+
+	const infoByPill: Record<string, string[]> = {
+		water: waterInfo,
+		fert: fertInfo,
+		soil: soilInfo,
+		calibrated: calibratedInfo,
+		prediction: predictionInfo,
+	};
+	const openInfoLines = openInfo ? infoByPill[openInfo] ?? [] : [];
 
 	// Le azioni arrivano già caricate da App (una richiesta per tutte le piante).
 	// localActions tiene quelle registrate in questa sessione, che il server non
@@ -458,20 +520,26 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 			)}
 
 			<div className="status">
-				<span
-					ref={waterPillRef}
+				<InfoPill
+					id="water"
+					innerRef={waterPillRef}
 					className={`status-item ${waterStatus.overdue ? 'overdue' : 'ok'}`}
-					title={waterTitle}
+					lines={waterInfo}
+					openId={openInfo}
+					onToggle={setOpenInfo}
 				>
 					💧 {waterStatus.label}
-				</span>
-				<span
-					ref={fertPillRef}
+				</InfoPill>
+				<InfoPill
+					id="fert"
+					innerRef={fertPillRef}
 					className={`status-item ${fertStatus.overdue ? 'overdue' : 'ok'}`}
-					title={fertStatus.dueAt != null ? `${t('status.scheduleDue')}: ${formatDateTime(fertStatus.dueAt)}` : undefined}
+					lines={fertInfo}
+					openId={openInfo}
+					onToggle={setOpenInfo}
 				>
 					🧪 {fertStatus.label}
-				</span>
+				</InfoPill>
 			</div>
 
 			{readings && (readings.temperature !== null || readings.ambientHumidity !== null) && (
@@ -487,19 +555,28 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 
 			{readings?.soilHumidity != null && (
 				<div className="status">
-					<span
+					<InfoPill
+						id="soil"
 						className={`status-item soil-humidity-pill ${soilNeedsWater ? 'overdue' : ''}`}
 						style={soilDryReference != null ? getSoilHumidityStyle(readings.soilHumidity, soilDryReference, prediction?.calibration?.wetPoint) : undefined}
-						title={soilThreshold != null ? `${t('plant.soilHumidityThreshold')}: ${soilThreshold}%` : undefined}
+						lines={soilInfo}
+						openId={openInfo}
+						onToggle={setOpenInfo}
 					>
 						🪴 {readings.soilHumidity}%
-					</span>
+					</InfoPill>
 					{/* Lettura riportata sulla scala della pianta: se innaffi sempre al 30%,
 					    quel 30% grezzo qui è 0%, che è l'informazione che serve davvero. */}
 					{prediction?.normalizedSoilHumidity != null && prediction.calibration && (
-						<span className="status-item soil-calibrated-pill" title={buildCalibrationTooltip(prediction)}>
+						<InfoPill
+							id="calibrated"
+							className="status-item soil-calibrated-pill"
+							lines={calibratedInfo}
+							openId={openInfo}
+							onToggle={setOpenInfo}
+						>
 							🧠 {prediction.normalizedSoilHumidity}%
-						</span>
+						</InfoPill>
 					)}
 				</div>
 			)}
@@ -507,13 +584,25 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 			{/* Finché la stima non guida lo stato resta un'informazione a margine. */}
 			{prediction && water.source !== 'prediction' && (
 				<div className="status">
-					<span
+					<InfoPill
+						id="prediction"
 						className={`status-item prediction-pill confidence-${prediction.confidence}`}
-						title={buildPredictionTooltip(prediction)}
+						lines={predictionInfo}
+						openId={openInfo}
+						onToggle={setOpenInfo}
 					>
 						🧠 {t('prediction.label')}: {formatPredictionEta(prediction)}
 						{prediction.confidence === 'low' && ` · ${t('prediction.learning')}`}
-					</span>
+					</InfoPill>
+				</div>
+			)}
+
+			{/* Sul telefono il tooltip non esiste: gli stessi dettagli si aprono qui al tocco. */}
+			{openInfoLines.length > 0 && (
+				<div className="info-panel" onClick={() => setOpenInfo(null)}>
+					{openInfoLines.map((line, i) => (
+						<div key={i} className="info-panel-line">{line}</div>
+					))}
 				</div>
 			)}
 

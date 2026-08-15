@@ -38,12 +38,27 @@ export interface Sample {
 	/** epoch ms */
 	t: number;
 	v: number;
+	/**
+	 * Valore massimo osservato dentro il bucket, presente solo se superiore a `v`.
+	 *
+	 * Serve perché il picco subito dopo un'irrigazione dura pochi minuti: tenendo
+	 * solo l'ultimo valore del bucket (giusto per la curva di asciugatura) il picco
+	 * andava perso, e la calibrazione finiva per credere che il terreno "pieno"
+	 * fosse molto più asciutto di quanto sia davvero.
+	 */
+	peak?: number;
+}
+
+/** Massimo osservato per il campione: il picco se registrato, altrimenti il valore. */
+export function samplePeak(sample: Sample): number {
+	return sample.peak ?? sample.v;
 }
 
 type PlantSeries = Record<SeriesKey, Sample[]>;
 
-// Su disco i campioni sono [secondi, valore]: JSON molto più compatto.
-type StoredSample = [number, number];
+// Su disco i campioni sono [secondi, valore] — o [secondi, valore, picco] quando
+// dentro il bucket è stato visto un valore più alto. JSON molto più compatto.
+type StoredSample = [number, number] | [number, number, number];
 interface StoredFile {
 	version: number;
 	plants: Record<string, Partial<Record<SeriesKey, StoredSample[]>>>;
@@ -78,8 +93,8 @@ export function loadHistory(): void {
 				const stored = series[key];
 				if (!Array.isArray(stored)) continue;
 				target[key] = stored
-					.filter((s) => Array.isArray(s) && s.length === 2)
-					.map(([t, v]) => ({ t: t * 1000, v }));
+					.filter((s) => Array.isArray(s) && s.length >= 2)
+					.map(([t, v, peak]) => (peak != null ? { t: t * 1000, v, peak } : { t: t * 1000, v }));
 			}
 		}
 		console.log(`[History] Loaded readings for ${history.size} plant(s)`);
@@ -97,7 +112,11 @@ export function persistHistory(): void {
 			const entry: Partial<Record<SeriesKey, StoredSample[]>> = {};
 			for (const key of Object.keys(SERIES_CONFIG) as SeriesKey[]) {
 				if (series[key].length === 0) continue;
-				entry[key] = series[key].map((s) => [Math.round(s.t / 1000), s.v] as StoredSample);
+				entry[key] = series[key].map((s) => (
+					s.peak != null
+						? [Math.round(s.t / 1000), s.v, s.peak]
+						: [Math.round(s.t / 1000), s.v]
+				) as StoredSample);
 			}
 			if (Object.keys(entry).length > 0) out.plants[plantId] = entry;
 		}
@@ -134,10 +153,14 @@ export function recordSample(plantId: string, key: SeriesKey, value: number, at:
 	const last = series[series.length - 1];
 
 	if (last && Math.floor(last.t / bucketMs) === Math.floor(at / bucketMs)) {
-		// Stesso bucket: l'ultima lettura è più rappresentativa.
-		if (last.v === rounded && last.t === at) return;
+		// Stesso bucket: per la curva di asciugatura conta l'ultima lettura, ma il
+		// massimo va conservato a parte o i picchi brevi (l'irrigazione!) sparirebbero.
+		const highest = Math.max(samplePeak(last), rounded);
+		if (last.v === rounded && last.t === at && samplePeak(last) === highest) return;
 		last.t = at;
 		last.v = rounded;
+		if (highest > rounded) last.peak = highest;
+		else delete last.peak;
 	} else {
 		series.push({ t: at, v: rounded });
 		if (series.length > maxSamples) series.splice(0, series.length - maxSamples);

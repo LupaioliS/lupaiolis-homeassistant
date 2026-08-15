@@ -145,9 +145,12 @@ It learns two things from the soil sensor plus your watering history:
 
 - **The plant's own scale.** If you consistently water at 30% raw, then 30% is
   this plant's "empty", not 30% of anything meaningful. MetaPlants takes the
-  median reading at the moment you water as the 0% point, and the median peak
-  right after watering as 100%, then shows the recalibrated value next to the
-  raw one on the card (🧠 pill). Hover it to see both reference points.
+  0% point from the driest reading in the hours before each watering, and the
+  100% point from the peak actually reached just after it, then shows the
+  recalibrated value next to the raw one on the card (🧠 pill). Tap it — or
+  hover it with a mouse — to see both reference points. "Full" is treated as an extreme rather than an
+  average — a generous soak counts for more than a top-up — while still
+  ignoring a single freak reading once there are several cycles to compare.
 - **How fast it dries.** A linear fit over the readings since the last watering
   gives a dry-down rate in percentage points per day, which combined with the
   0% point yields the time left. The average interval between past waterings in
@@ -159,7 +162,7 @@ the status while it's still learning. Once it has at least 3 watering cycles, a
 clean dry-down fit and a calibration from real waterings, it's promoted to
 "high confidence" and becomes the watering status shown on the card and in the
 "needs attention" banner. The seasonal schedule stays as the fallback and is
-always visible on hover.
+always one tap (or hover) away on the pill itself.
 
 The estimate is also published on MQTT inside the plant attributes, under
 `prediction` (`next_watering`, `days_left`, `confidence`, `dry_rate_per_day`,

@@ -219,14 +219,59 @@ header h1 {
   font-weight: 600;
   background: #ede9fe;
   color: #6d28d9;
-  cursor: help;
 }
 
 /* Stima di quando servirà l'irrigazione: informativa finché non guida lo stato. */
 .prediction-pill {
   background: #f5f3ff;
   color: #6d28d9;
-  cursor: help;
+}
+
+/* Pillola con dettagli: tooltip col mouse, pannello al tocco sul telefono.
+   Il puntino segnala che c'è dell'altro da vedere, senza rubare spazio. */
+.status-item.has-info {
+  cursor: pointer;
+  position: relative;
+  padding-right: 14px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.status-item.has-info::after {
+  content: '';
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.45;
+}
+
+.status-item.has-info.is-open::after {
+  opacity: 1;
+}
+
+.status-item.has-info:focus-visible {
+  outline: 2px solid var(--green-700);
+  outline-offset: 1px;
+}
+
+.info-panel {
+  margin: -4px 0 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--green-100);
+  border: 1px solid var(--green-200);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #374151;
+  cursor: pointer;
+}
+
+.info-panel-line + .info-panel-line {
+  margin-top: 2px;
 }
 
 .prediction-pill.confidence-low {

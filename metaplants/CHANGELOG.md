@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.10.1
+
+- The details behind the status pills (estimate, calibration reference points, seasonal due date) are now reachable on a phone: `title` tooltips only appear on mouse hover, so on touch that information was simply unreachable. Pills carrying details show a small dot and open a panel below the card when tapped; hovering with a mouse still shows the tooltip as before
+- Fix the watering estimate calibrating "full soil" against a value lower than the peak actually reached. Two causes: history buckets kept only the last reading of each 15-minute window, so the post-watering spike — which often lasts a few minutes — was overwritten by the value it settled at; and the peak was only looked for *after* the logged watering time, while a watering logged through the "did you water it?" prompt is recorded once the sensor has already risen. Buckets now keep the highest value seen alongside the last one, and the peak is searched in a window spanning from before the logged action to 4h after it
+- Fix the 0% point of the calibrated scale possibly being a wet reading, for the same reason: it was taken from the last reading before the logged watering, which through the prompt flow can already be post-watering. It is now the lowest reading in the hours preceding it
+- The 100% point is now the 75th percentile of recent peaks rather than their median, so a generous soak counts for more than a top-up while a single freak reading still can't define the scale on its own
+
+Peaks already lost to the previous bucketing can't be recovered; affected plants recalibrate on their next watering. Existing `history.json` files load unchanged.
+
 ## 1.10.0
 
 ### Countdown
