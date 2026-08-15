@@ -1,5 +1,6 @@
 import mqtt from 'mqtt';
-import type { Plant, Season, SeasonalSchedule } from '../shared/types';
+import type { Plant } from '../shared/types';
+import { DAY_MS, describeDue, getCurrentSeason, getIntervalForSeason } from '../shared/schedule';
 import { store } from './store';
 import { broadcast } from './events';
 import { mt } from './i18n';
@@ -341,48 +342,23 @@ function daysAgo(dateStr?: string): number | null {
 	return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86400000);
 }
 
-function getCurrentSeason(): Season {
-	const month = new Date().getMonth();
-	if (month >= 2 && month <= 4) return 'spring';
-	if (month >= 5 && month <= 7) return 'summer';
-	if (month >= 8 && month <= 10) return 'autumn';
-	return 'winter';
-}
-
-function getSeasonalInterval(schedule: SeasonalSchedule | undefined, season: Season, fallback: number): number {
-	const value = schedule?.[season];
-	if (typeof value === 'number' && value > 0) return value;
-	return fallback;
-}
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
-
 // Mirrors the client-side getStatus(): hour-aware granularity within 24h, days otherwise.
 function getActionStatus(lastAction: string | undefined, intervalDays: number, neverKey: string): string {
 	if (!lastAction) return mt(neverKey);
 
-	const elapsedMs = Date.now() - new Date(lastAction).getTime();
-	const intervalMs = intervalDays * DAY_MS;
+	const due = describeDue(lastAction, intervalDays);
+	if (due.dueAt === null) return mt(neverKey);
 
-	if (elapsedMs >= intervalMs) {
-		const overdueMs = elapsedMs - intervalMs;
-		if (overdueMs < DAY_MS) {
-			const overdueHours = Math.max(1, Math.floor(overdueMs / HOUR_MS));
-			return `${mt('status.hoursAgo', { hours: overdueHours })} (${mt('status.overdue')})`;
+	if (due.overdue) {
+		if (due.overdueMs < DAY_MS) {
+			return `${mt('status.hoursAgo', { hours: due.overdueHours })} (${mt('status.overdue')})`;
 		}
-		const overdueDays = Math.floor(overdueMs / DAY_MS);
-		return `${mt('status.daysAgo', { days: overdueDays })} (${mt('status.overdue')})`;
+		return `${mt('status.daysAgo', { days: due.overdueDays })} (${mt('status.overdue')})`;
 	}
 
-	const remainingMs = intervalMs - elapsedMs;
-	if (remainingMs < DAY_MS) {
-		const remainingHours = Math.max(1, Math.ceil(remainingMs / HOUR_MS));
-		return mt('status.inHours', { hours: remainingHours });
-	}
-
-	const remainingDays = Math.ceil(remainingMs / DAY_MS);
-	return mt('status.inDays', { days: remainingDays });
+	if (due.remainingMs < DAY_MS) return mt('status.inHours', { hours: due.remainingHours });
+	if (due.remainingDays <= 1) return mt('status.tomorrow');
+	return mt('status.inDays', { days: due.remainingDays });
 }
 
 function publishState(plant: Plant) {
@@ -390,12 +366,14 @@ function publishState(plant: Plant) {
 
 	const slug = slugify(plant.name);
 	const season = getCurrentSeason();
-	const wateringIntervalDays = getSeasonalInterval(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
-	const fertilizingIntervalDays = getSeasonalInterval(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
+	const wateringIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
+	const fertilizingIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 
 	// Watering state — il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
 	const soilThreshold = plant.sensors?.soilHumidityThreshold;
-	const soilHumidity = getReadings(plant.id)?.soilHumidity;
+	const currentReadings = getReadings(plant.id);
+	const soilHumidity = currentReadings?.soilHumidity;
+	const prediction = currentReadings?.prediction;
 	const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
 	const waterState = soilNeedsWater
 		? mt('status.soilSensorWater')
@@ -463,6 +441,20 @@ function publishState(plant: Plant) {
 			product: p.productName, date: p.date, reason: p.reason,
 		})),
 		notes: plant.notes || null,
+		// Stima interna (predict.ts): utile per automazioni "innaffia quando manca poco"
+		// senza dover creare entità dedicate.
+		prediction: prediction
+			? {
+				next_watering: prediction.nextWateringAt,
+				days_left: prediction.daysLeft,
+				confidence: prediction.confidence,
+				source: prediction.source,
+				dry_rate_per_day: prediction.dryRatePerDay,
+				soil_dry_point: prediction.calibration?.dryPoint ?? null,
+				soil_wet_point: prediction.calibration?.wetPoint ?? null,
+				soil_humidity_calibrated: prediction.normalizedSoilHumidity,
+			}
+			: null,
 	};
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/attributes`, JSON.stringify(attributes));
 }

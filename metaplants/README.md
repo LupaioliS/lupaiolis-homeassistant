@@ -63,15 +63,31 @@ Discovery is published under a configurable prefix (default: `homeassistant`).
 ## Environmental Readings
 
 You can link each plant to Home Assistant temperature and/or humidity sensors
-and see their live values on the plant card. In the plant form, paste the
-sensor's `entity_id` (e.g. `sensor.living_room_temperature`) — fill in either,
-both, or neither.
+and see their live values on the plant card. In the plant form, pick them from
+the sensor dropdowns — see [Picking Sensors](#picking-sensors) below — fill in
+either, both, or neither.
 
 MetaPlants reads the states through the Supervisor proxy, so you don't need a
 token or URL; the add-on just needs `homeassistant_api: true` (already set).
-Values refresh every 60 seconds, plus an immediate read when you save a plant
-and once when you reload the page. Unavailable sensors or wrong entity IDs are
-quietly skipped.
+Values refresh every 20 seconds by default (`sensor_poll_seconds` option), plus
+an immediate read when you save a plant and once when you reload the page.
+Unavailable sensors or wrong entity IDs are quietly skipped.
+
+## Picking Sensors
+
+Rather than typing entity IDs by hand, the sensor fields in the plant form are
+dropdowns fed by Home Assistant.
+
+To get a short, relevant list, **add the `metaplants` label** to the entities
+you use for your plants (Settings → Devices & Services → Entities → select →
+Add label). MetaPlants reads that label through the `label_entities()` template
+function and offers only those entities.
+
+If no entity carries the label — or your Home Assistant predates
+`label_entities()` — the list falls back to every sensor with a
+`temperature`, `humidity` or `moisture` device class, and the form tells you so.
+There's always a "type entity_id manually" option, which is also what you get
+when running outside the add-on without HA credentials.
 
 Readings are display-only: they aren't saved to disk or pushed to MQTT, since a
 stale temperature is worse than none. Only the entity ID you pick is stored
@@ -84,9 +100,8 @@ long as it shows up as a Home Assistant sensor with a percentage state),
 MetaPlants can use it to override the watering schedule instead of just
 guessing from elapsed days.
 
-In the plant form, paste the sensor's `entity_id` (e.g.
-`sensor.vaso_monstera_umidita_terreno`) into the soil humidity field, then set
-a threshold percentage — the value below which the plant is considered dry.
+In the plant form, pick the sensor in the soil humidity field, then set a
+threshold percentage — the value below which the plant is considered dry.
 Leave the entity blank and MetaPlants falls back to the seasonal time-based
 schedule like before.
 
@@ -99,10 +114,57 @@ reading approaches the threshold, so you get a sense of how close it is
 without staring at the raw percentage. A dry plant also surfaces in the
 "needs attention" banner just like an overdue one.
 
-Readings are polled from Home Assistant every 60 seconds (plus right after
-you save the plant), the same mechanism used for temperature/humidity — see
-[Environmental Readings](#environmental-readings) below for the polling
+Readings are polled from Home Assistant every 20 seconds by default (plus right
+after you save the plant), the same mechanism used for temperature/humidity —
+see [Environmental Readings](#environmental-readings) below for the polling
 details and caveats.
+
+### "Did you water it?" prompt
+
+When the soil reading jumps up sharply, someone probably watered the plant
+without logging it. MetaPlants notices and asks: a dialog appears (immediately
+if the app is open, otherwise next time you open it) offering to log the
+watering with the usual ml slider.
+
+Detection compares the current reading against the **lowest reading of the last
+45 minutes**: a rise of 10 percentage points or more (adjustable per plant in
+the form) triggers the prompt. It deliberately does not require the soil to
+have been below the watering threshold first — that would miss every watering
+done before the plant got fully dry. After a prompt, or after any logged
+watering, detection pauses for 12 hours so the same watering isn't flagged
+twice while the soil is still wet.
+
+## Watering Estimate
+
+Alongside the seasonal schedule, MetaPlants builds a small per-plant model of
+when water will actually be needed. It's plain arithmetic over data the add-on
+already collects — no libraries, no training, a few hundred operations per
+plant per poll.
+
+It learns two things from the soil sensor plus your watering history:
+
+- **The plant's own scale.** If you consistently water at 30% raw, then 30% is
+  this plant's "empty", not 30% of anything meaningful. MetaPlants takes the
+  median reading at the moment you water as the 0% point, and the median peak
+  right after watering as 100%, then shows the recalibrated value next to the
+  raw one on the card (🧠 pill). Hover it to see both reference points.
+- **How fast it dries.** A linear fit over the readings since the last watering
+  gives a dry-down rate in percentage points per day, which combined with the
+  0% point yields the time left. The average interval between past waterings in
+  the current season acts as a second opinion, blended in proportion to how
+  clean the fit is.
+
+The estimate starts out **advisory**: it shows up as a separate pill next to
+the status while it's still learning. Once it has at least 3 watering cycles, a
+clean dry-down fit and a calibration from real waterings, it's promoted to
+"high confidence" and becomes the watering status shown on the card and in the
+"needs attention" banner. The seasonal schedule stays as the fallback and is
+always visible on hover.
+
+The estimate is also published on MQTT inside the plant attributes, under
+`prediction` (`next_watering`, `days_left`, `confidence`, `dry_rate_per_day`,
+`soil_dry_point`, `soil_wet_point`, `soil_humidity_calibrated`), so automations
+can use it directly.
 
 ### What this means on MQTT
 

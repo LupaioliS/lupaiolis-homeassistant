@@ -11,7 +11,8 @@ import { addClient } from './events';
 import { config } from './config';
 
 import { startScheduler, stopScheduler } from './scheduler';
-import { startSensorPolling, stopSensorPolling, setOnReadingsUpdated } from './sensors';
+import { startSensorPolling, stopSensorPolling, setOnReadingsUpdated, migrateLegacySensorHistory } from './sensors';
+import { loadHistory, startHistoryPersistence, stopHistoryPersistence } from './history';
 
 const fastify = Fastify({ logger: true });
 
@@ -40,12 +41,16 @@ async function start() {
 		return { locale: serverLocale };
 	});
 
-	// Serve uploaded images from the persistent data directory
+	// Serve uploaded images from the persistent data directory.
+	// I nomi file sono UUID e il contenuto non cambia mai: si può cacheare per sempre,
+	// così il telefono non riscarica le foto ad ogni apertura della UI.
 	ensureUploadsDir();
 	await fastify.register(fastifyStatic, {
 		root: UPLOADS_DIR,
 		prefix: '/uploads/',
 		decorateReply: false,
+		maxAge: 31536000_000,
+		immutable: true,
 	});
 
 	// Serve React static files
@@ -59,6 +64,12 @@ async function start() {
 	fastify.setNotFoundHandler((_req, reply) => {
 		reply.sendFile('index.html');
 	});
+
+	// Storico letture: serve al modello di previsione ed evita di riscrivere
+	// plants.json ad ogni poll dei sensori.
+	loadHistory();
+	migrateLegacySensorHistory();
+	startHistoryPersistence();
 
 	// Connect MQTT and publish all plants
 	try {
@@ -84,6 +95,7 @@ async function start() {
 async function shutdown() {
 	stopScheduler();
 	stopSensorPolling();
+	stopHistoryPersistence(); // scrive su disco le letture non ancora salvate
 	await disconnectMqtt();
 	process.exit(0);
 }

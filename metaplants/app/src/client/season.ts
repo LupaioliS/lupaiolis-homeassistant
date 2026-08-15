@@ -1,16 +1,8 @@
 import type { PlantAction, Season, SeasonalSchedule } from '../shared/types';
 
-export function getSeasonForDate(date: Date): Season {
-	const month = date.getMonth();
-	if (month >= 2 && month <= 4) return 'spring';
-	if (month >= 5 && month <= 7) return 'summer';
-	if (month >= 8 && month <= 10) return 'autumn';
-	return 'winter';
-}
-
-export function getCurrentSeason(): Season {
-	return getSeasonForDate(new Date());
-}
+// I confini fra le stagioni sono condivisi con il server (src/shared/schedule.ts).
+export { getSeasonForDate, getCurrentSeason } from '../shared/schedule';
+import { getSeasonForDate } from '../shared/schedule';
 
 export const seasonEmoji: Record<Season, string> = {
 	spring: '🌸',

@@ -1,5 +1,5 @@
 name: "MetaPlants"
-version: "1.9.3"
+version: "1.10.0"
 slug: "metaplants"
 description: "Home Assistant add-on to manage household plants: watering, fertilizing, repotting, pruning, and health issue history"
 arch:
@@ -17,9 +17,11 @@ options:
   mqtt_pass: ""
   ha_discovery_prefix: "homeassistant"
   lang: "it"
+  sensor_poll_seconds: 20
 schema:
   mqtt_url: str
   mqtt_user: str?
   mqtt_pass: password?
   ha_discovery_prefix: str
   lang: "list(it|en)"
+  sensor_poll_seconds: "int(5,300)"

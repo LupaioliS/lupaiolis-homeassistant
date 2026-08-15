@@ -7,6 +7,7 @@ export const mqtt_it = {
 		hoursAgo: '{hours}h fa',
 		inDays: 'tra {days}g',
 		inHours: 'tra {hours}h',
+		tomorrow: 'domani',
 		soilSensorWater: 'da irrigare (sensore terreno)',
 	},
 	watering: {

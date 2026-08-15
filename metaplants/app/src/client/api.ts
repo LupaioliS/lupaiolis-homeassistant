@@ -1,5 +1,6 @@
-import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage, PlantReadings } from '../shared/types';
+import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage, PlantReadings, HaEntityList } from '../shared/types';
 import { BASE_PATH } from './basePath';
+import { prepareImageForUpload } from './imageResize';
 
 const BASE = `${BASE_PATH}/api`;
 
@@ -32,6 +33,7 @@ export const api = {
 		}),
 	getActions: (plantId: string) =>
 		request<PlantAction[]>(`/plants/${encodeURIComponent(plantId)}/actions`),
+	getAllActions: () => request<PlantAction[]>('/actions'),
 	addHealthIssue: (plantId: string, data: { type: string; name: string; detectedDate: string; notes?: string; imageUrl?: string }) =>
 		request<HealthIssue>(`/plants/${encodeURIComponent(plantId)}/health`, {
 			method: 'POST',
@@ -48,8 +50,11 @@ export const api = {
 			body: JSON.stringify(data),
 		}),
 	uploadImage: async (file: File): Promise<string> => {
+		// Ridimensiona nel telefono: l'upload parte già leggero e la foto servita
+		// alle schede non è più l'originale da diversi megabyte.
+		const prepared = await prepareImageForUpload(file);
 		const form = new FormData();
-		form.append('file', file);
+		form.append('file', prepared);
 		const res = await fetch(`${BASE}/upload`, { method: 'POST', body: form });
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const data = (await res.json()) as { url: string };
@@ -58,6 +63,8 @@ export const api = {
 	syncMqtt: () => request<{ success: boolean }>('/mqtt/sync', { method: 'POST' }),
 	
 	getReadings: () => request<Record<string, PlantReadings>>('/readings'),
+	getHaEntities: (refresh = false) =>
+		request<HaEntityList>(`/ha/entities${refresh ? '?refresh=1' : ''}`),
 	acknowledgeSoilJump: (plantId: string) =>
 		request<{ success: boolean }>(`/plants/${encodeURIComponent(plantId)}/ack-soil-jump`, { method: 'POST' }),
 };

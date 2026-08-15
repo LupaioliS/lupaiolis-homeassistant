@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
-import type { Plant, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings } from '../../shared/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { Plant, PlantAction, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings, WateringPrediction } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
-import { getIntervalForSeason, isOverdue } from '../plantStatus';
+import { describeDue, getIntervalForSeason, DAY_MS } from '../plantStatus';
+import { assessWater, isPredictionDueNow } from '../waterStatus';
 import { withBase } from '../basePath';
 import { ActionDialog, type ActionDialogType } from './ActionDialog';
 import { WaterSplashEffect, DROPLET_FALL_DURATION_S, DROPLET_STAGGER_S, DROPLET_ARRIVAL_FRACTION, type SplashTarget } from './WaterSplashEffect';
@@ -13,23 +14,13 @@ import { FertilizeSproutEffect, SPROUT_DURATION_MS } from './FertilizeSproutEffe
 interface PlantCardProps {
 	plant: Plant;
 	readings?: PlantReadings;
+	/** Storico azioni della pianta, caricato una volta sola da App. */
+	actions?: PlantAction[];
 	onWater: (amountMl: number) => void | Promise<void>;
 	onFertilize: (amountGrams: number) => void | Promise<void>;
 	onEdit: () => void;
 	onRefresh: () => void;
 	onPatch: (plant: Plant) => void;
-}
-
-function getDaysAgo(dateStr?: string): number | null {
-	if (!dateStr) return null;
-	const diff = Date.now() - new Date(dateStr).getTime();
-	return Math.floor(diff / (1000 * 60 * 60 * 24));
-}
-
-function getHoursAgo(dateStr?: string): number | null {
-	if (!dateStr) return null;
-	const diff = Date.now() - new Date(dateStr).getTime();
-	return Math.floor(diff / (1000 * 60 * 60));
 }
 
 // Stessa palette pastello dei pulsanti azione (.btn-water / .btn-fertilize): sfondo chiaro, testo scuro saturo.
@@ -45,10 +36,11 @@ function mixColor(a: number[], b: number[], ratio: number): string {
 
 // Pillola con sfondo a sfumatura: più ci si avvicina alla soglia di irrigazione, più vira dal pastello
 // azzurro (bagnato) al pastello marrone (secco), con un fade morbido invece di uno stacco netto.
-function getSoilHumidityStyle(value: number, threshold: number): { background: string; color: string } {
-	// 0 = al limite della soglia (secco), 1 = bagnato (soglia + 30 punti percentuali)
-	const wetReference = threshold + 30;
-	const ratio = Math.min(1, Math.max(0, (value - threshold) / (wetReference - threshold)));
+function getSoilHumidityStyle(value: number, dryReference: number, wetReference?: number): { background: string; color: string } {
+	// 0 = terreno asciutto, 1 = bagnato. Con la calibrazione appresa i due estremi
+	// sono quelli reali della pianta; altrimenti si usa soglia e soglia + 30 punti.
+	const wet = wetReference != null && wetReference > dryReference ? wetReference : dryReference + 30;
+	const ratio = Math.min(1, Math.max(0, (value - dryReference) / (wet - dryReference)));
 	const bgColor = mixColor(SOIL_DRY_BG, SOIL_WET_BG, ratio);
 	const bgColorSoft = mixColor(SOIL_DRY_BG, SOIL_WET_BG, Math.min(1, ratio + 0.15));
 	const textColor = mixColor(SOIL_DRY_TEXT, SOIL_WET_TEXT, ratio);
@@ -58,46 +50,76 @@ function getSoilHumidityStyle(value: number, threshold: number): { background: s
 	};
 }
 
-function getStatus(lastAction: string | undefined, intervalDays: number): { overdue: boolean; label: string } {
-	if (!lastAction) return { overdue: true, label: t('status.neverDone') };
+function getStatus(lastAction: string | undefined, intervalDays: number): { overdue: boolean; label: string; dueAt: number | null } {
+	const due = describeDue(lastAction, intervalDays);
+	if (due.dueAt === null) return { overdue: true, label: t('status.neverDone'), dueAt: null };
 
-	const daysAgo = getDaysAgo(lastAction);
-	const hoursAgo = getHoursAgo(lastAction);
-	if (daysAgo === null) return { overdue: true, label: t('status.neverDone') };
-	if (hoursAgo === null) return { overdue: true, label: t('status.neverDone') };
-
-	const intervalMs = intervalDays * 24 * 60 * 60 * 1000;
-	const elapsedMs = Date.now() - new Date(lastAction).getTime();
-
-	if (isOverdue(lastAction, intervalDays)) {
-		const overdueMs = elapsedMs - intervalMs;
-		if (overdueMs < 24 * 60 * 60 * 1000) {
-			const overdueHours = Math.max(1, Math.floor(overdueMs / (1000 * 60 * 60)));
-			return {
-				overdue: true,
-				label: `${t('status.hoursAgo').replace('{hours}', String(overdueHours))} (${t('status.overdue')})`,
-			};
-		}
-		const overdueDays = Math.floor(overdueMs / (1000 * 60 * 60 * 24));
-		return {
-			overdue: true,
-			label: `${t('status.daysAgo').replace('{days}', String(overdueDays))} (${t('status.overdue')})`,
-		};
+	if (due.overdue) {
+		const label = due.overdueMs < DAY_MS
+			? `${t('status.hoursAgo').replace('{hours}', String(due.overdueHours))} (${t('status.overdue')})`
+			: `${t('status.daysAgo').replace('{days}', String(due.overdueDays))} (${t('status.overdue')})`;
+		return { overdue: true, label, dueAt: due.dueAt };
 	}
 
-	const remainingMs = intervalMs - elapsedMs;
-	if (remainingMs < 24 * 60 * 60 * 1000) {
-		const remainingHours = Math.max(1, Math.ceil(remainingMs / (1000 * 60 * 60)));
-		return { overdue: false, label: t('status.inHours').replace('{hours}', String(remainingHours)) };
+	// Giorni di CALENDARIO, non frazioni arrotondate per eccesso: "tra 2g" significa
+	// che scade dopodomani, non "fra un tempo che potrebbe finire domani mattina".
+	if (due.remainingMs < DAY_MS) {
+		return { overdue: false, label: t('status.inHours').replace('{hours}', String(due.remainingHours)), dueAt: due.dueAt };
 	}
-
-	const remainingDays = Math.ceil(remainingMs / (1000 * 60 * 60 * 24));
-	return { overdue: false, label: t('status.inDays').replace('{days}', String(remainingDays)) };
+	if (due.remainingDays <= 1) return { overdue: false, label: t('status.tomorrow'), dueAt: due.dueAt };
+	return { overdue: false, label: t('status.inDays').replace('{days}', String(due.remainingDays)), dueAt: due.dueAt };
 }
 
 function formatDate(dateStr?: string): string {
 	if (!dateStr) return '-';
 	return new Date(dateStr).toLocaleDateString();
+}
+
+function formatDateTime(timestamp: number): string {
+	return new Date(timestamp).toLocaleString(undefined, {
+		weekday: 'short',
+		day: 'numeric',
+		month: 'short',
+		hour: '2-digit',
+		minute: '2-digit',
+	});
+}
+
+/** "adesso" / "~5h" / "~3g": la stima è una durata, non una data di calendario. */
+function formatPredictionEta(prediction: WateringPrediction): string {
+	if (isPredictionDueNow(prediction)) return t('prediction.now');
+	if (prediction.daysLeft < 1) {
+		const hours = Math.max(1, Math.round(prediction.daysLeft * 24));
+		return t('prediction.inHours').replace('{hours}', String(hours));
+	}
+	return t('prediction.inDays').replace('{days}', String(Math.round(prediction.daysLeft)));
+}
+
+function buildPredictionTooltip(prediction: WateringPrediction): string {
+	const lines = [
+		`${t('prediction.next')}: ${formatDateTime(new Date(prediction.nextWateringAt).getTime())}`,
+		`${t('prediction.confidence')}: ${t(`prediction.confidence_${prediction.confidence}`)}`,
+	];
+	if (prediction.dryRatePerDay != null) {
+		lines.push(t('prediction.dryRate').replace('{rate}', String(prediction.dryRatePerDay)));
+	}
+	if (prediction.averageCycleDays != null) {
+		lines.push(t('prediction.averageCycle').replace('{days}', String(prediction.averageCycleDays)));
+	}
+	if (prediction.cycles > 0) {
+		lines.push(t('prediction.learnedFrom').replace('{count}', String(prediction.cycles)));
+	}
+	return lines.join('\n');
+}
+
+function buildCalibrationTooltip(prediction: WateringPrediction): string | undefined {
+	const calibration = prediction.calibration;
+	if (!calibration) return undefined;
+	return [
+		t('prediction.calibrationTitle'),
+		t('prediction.calibrationDry').replace('{value}', String(calibration.dryPoint)),
+		t('prediction.calibrationWet').replace('{value}', String(calibration.wetPoint)),
+	].join('\n');
 }
 
 export function isDoneToday(dateStr?: string): boolean {
@@ -151,7 +173,7 @@ function ActionButton({ disabled: initialDisabled, className, onClick, label }: 
 	);
 }
 
-export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRefresh, onPatch }: PlantCardProps) {
+export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEdit, onRefresh, onPatch }: PlantCardProps) {
 	const [showHealth, setShowHealth] = useState(false);
 	const [showProducts, setShowProducts] = useState(false);
 	const [issueType, setIssueType] = useState<HealthIssueType>('pest');
@@ -160,12 +182,8 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 	const [issueUploading, setIssueUploading] = useState(false);
 	const [productName, setProductName] = useState('');
 	const [productReason, setProductReason] = useState('');
-	const [waterSuggestion, setWaterSuggestion] = useState<number | null>(null);
-	const [fertSuggestion, setFertSuggestion] = useState<number | null>(null);
 	const [activeDialog, setActiveDialog] = useState<ActionDialogType | null>(null);
-	const [lastWaterMl, setLastWaterMl] = useState<number | null>(null);
-	const [lastFertGrams, setLastFertGrams] = useState<number | null>(null);
-	const [lastPotSizeCm, setLastPotSizeCm] = useState<number | null>(null);
+	const [localActions, setLocalActions] = useState<PlantAction[]>([]);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const waterPillRef = useRef<HTMLSpanElement>(null);
 	const waterButtonRef = useRef<HTMLDivElement>(null);
@@ -177,36 +195,68 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 	const [sproutTargets, setSproutTargets] = useState<FillTarget[]>([]);
 
 	const season = getCurrentSeason();
-	const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
 	const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 	const fertStatus = getStatus(plant.lastFertilized, fertIntervalDays);
 
+	const water = assessWater(plant, readings, season);
+	const prediction = water.prediction;
 	const soilThreshold = plant.sensors?.soilHumidityThreshold;
-	const soilHumidity = readings?.soilHumidity;
-	const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
-	// Il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
+	// Il punto "asciutto" appreso descrive la pianta meglio della soglia scritta a mano.
+	const soilDryReference = prediction?.calibration?.dryPoint ?? soilThreshold;
+	const soilNeedsWater = water.soilBelowThreshold;
+	const scheduleStatus = getStatus(plant.lastWatered, water.intervalDays);
+
+	// Finché la stima non ha imparato abbastanza resta a margine: qui comanda solo
+	// quando assessWater la promuove (confidence alta).
 	const waterStatus = soilNeedsWater
-		? { overdue: true, label: t('status.soilSensorWater') }
-		: getStatus(plant.lastWatered, waterIntervalDays);
+		? { overdue: true, label: t('status.soilSensorWater'), dueAt: scheduleStatus.dueAt }
+		: water.source === 'prediction' && prediction
+			? { overdue: water.overdue, label: `🧠 ${formatPredictionEta(prediction)}`, dueAt: scheduleStatus.dueAt }
+			: scheduleStatus;
 
-	useEffect(() => {
-		api.getActions(plant.id)
-			.then((actions) => {
-				const waterSuggestions = computeSeasonalSuggestions(actions, 'water');
-				const fertSuggestions = computeSeasonalSuggestions(actions, 'fertilize');
-				setWaterSuggestion(waterSuggestions[season] ?? null);
-				setFertSuggestion(fertSuggestions[season] ?? null);
+	const waterTitle = [
+		water.source === 'prediction' && prediction ? buildPredictionTooltip(prediction) : null,
+		scheduleStatus.dueAt != null
+			? `${t('status.scheduleDue')}: ${formatDateTime(scheduleStatus.dueAt)}`
+			: null,
+	].filter(Boolean).join('\n') || undefined;
 
-				const lastOfType = (type: string, field: 'amountMl' | 'amountGrams' | 'potSizeCm') => {
-					const match = [...actions].reverse().find((a) => a.type === type && a[field] != null);
-					return match ? (match[field] as number) : null;
-				};
-				setLastWaterMl(lastOfType('water', 'amountMl'));
-				setLastFertGrams(lastOfType('fertilize', 'amountGrams'));
-				setLastPotSizeCm(lastOfType('repot', 'potSizeCm'));
-			})
-			.catch(() => { /* no suggestions without history */ });
-	}, [plant.id, season, plant.lastWatered, plant.lastFertilized, plant.lastRepotted]);
+	// Le azioni arrivano già caricate da App (una richiesta per tutte le piante).
+	// localActions tiene quelle registrate in questa sessione, che il server non
+	// ritrasmette via SSE: si azzerano da sole al prossimo caricamento completo.
+	useEffect(() => { setLocalActions([]); }, [actions]);
+
+	const allActions = useMemo(
+		() => (localActions.length > 0 ? [...(actions ?? []), ...localActions] : actions ?? []),
+		[actions, localActions],
+	);
+
+	const waterSuggestion = useMemo(
+		() => computeSeasonalSuggestions(allActions, 'water')[season] ?? null,
+		[allActions, season],
+	);
+	const fertSuggestion = useMemo(
+		() => computeSeasonalSuggestions(allActions, 'fertilize')[season] ?? null,
+		[allActions, season],
+	);
+
+	const lastOfType = (type: string, field: 'amountMl' | 'amountGrams' | 'potSizeCm'): number | null => {
+		const match = [...allActions].reverse().find((a) => a.type === type && a[field] != null);
+		return match ? (match[field] as number) : null;
+	};
+	const lastWaterMl = lastOfType('water', 'amountMl');
+	const lastFertGrams = lastOfType('fertilize', 'amountGrams');
+	const lastPotSizeCm = lastOfType('repot', 'potSizeCm');
+
+	const rememberAction = (type: PlantAction['type'], options: { amountMl?: number; amountGrams?: number; potSizeCm?: number } = {}) => {
+		setLocalActions((prev) => [...prev, {
+			id: `local-${Date.now()}`,
+			plantId: plant.id,
+			type,
+			date: new Date().toISOString(),
+			...options,
+		}]);
+	};
 
 	const applyWaterSuggestion = () => {
 		if (waterSuggestion == null) return;
@@ -224,6 +274,7 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 
 	const handleRepot = async (potSizeCm: number) => {
 		onPatch({ ...plant, lastRepotted: new Date().toISOString(), potSizeCm });
+		rememberAction('repot', { potSizeCm });
 		api.logAction(plant.id, 'repot', { potSizeCm }).catch(onRefresh);
 	};
 
@@ -285,10 +336,12 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 
 	const handleDialogConfirm = async (value: number) => {
 		if (activeDialog === 'water') {
+			rememberAction('water', { amountMl: value });
 			await onWater(value);
 			launchWaterDroplets();
 		}
 		else if (activeDialog === 'fertilize') {
+			rememberAction('fertilize', { amountGrams: value });
 			await onFertilize(value);
 			launchFertilizeSprouts();
 		}
@@ -386,7 +439,15 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 			<WaterFillOverlay targets={fillTargets} />
 			<FertilizeSproutEffect targets={sproutTargets} />
 			{plant.imageUrl && (
-				<img className="plant-photo" src={withBase(plant.imageUrl)} alt={plant.name} />
+				<img
+					className="plant-photo"
+					src={withBase(plant.imageUrl)}
+					alt={plant.name}
+					loading="lazy"
+					decoding="async"
+					width={400}
+					height={160}
+				/>
 			)}
 			<h3>{plant.name}{plant.nickname && <span className="nickname"> "{plant.nickname}"</span>}</h3>
 			<div className="species">{plant.species}</div>
@@ -397,14 +458,22 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 			)}
 
 			<div className="status">
-				<span ref={waterPillRef} className={`status-item ${waterStatus.overdue ? 'overdue' : 'ok'}`}>
+				<span
+					ref={waterPillRef}
+					className={`status-item ${waterStatus.overdue ? 'overdue' : 'ok'}`}
+					title={waterTitle}
+				>
 					💧 {waterStatus.label}
 				</span>
-				<span ref={fertPillRef} className={`status-item ${fertStatus.overdue ? 'overdue' : 'ok'}`}>
+				<span
+					ref={fertPillRef}
+					className={`status-item ${fertStatus.overdue ? 'overdue' : 'ok'}`}
+					title={fertStatus.dueAt != null ? `${t('status.scheduleDue')}: ${formatDateTime(fertStatus.dueAt)}` : undefined}
+				>
 					🧪 {fertStatus.label}
 				</span>
 			</div>
-		
+
 			{readings && (readings.temperature !== null || readings.ambientHumidity !== null) && (
 				<div className="status">
 					{readings.temperature !== null && (
@@ -420,10 +489,30 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 				<div className="status">
 					<span
 						className={`status-item soil-humidity-pill ${soilNeedsWater ? 'overdue' : ''}`}
-						style={soilThreshold != null ? getSoilHumidityStyle(readings.soilHumidity, soilThreshold) : undefined}
+						style={soilDryReference != null ? getSoilHumidityStyle(readings.soilHumidity, soilDryReference, prediction?.calibration?.wetPoint) : undefined}
 						title={soilThreshold != null ? `${t('plant.soilHumidityThreshold')}: ${soilThreshold}%` : undefined}
 					>
 						🪴 {readings.soilHumidity}%
+					</span>
+					{/* Lettura riportata sulla scala della pianta: se innaffi sempre al 30%,
+					    quel 30% grezzo qui è 0%, che è l'informazione che serve davvero. */}
+					{prediction?.normalizedSoilHumidity != null && prediction.calibration && (
+						<span className="status-item soil-calibrated-pill" title={buildCalibrationTooltip(prediction)}>
+							🧠 {prediction.normalizedSoilHumidity}%
+						</span>
+					)}
+				</div>
+			)}
+
+			{/* Finché la stima non guida lo stato resta un'informazione a margine. */}
+			{prediction && water.source !== 'prediction' && (
+				<div className="status">
+					<span
+						className={`status-item prediction-pill confidence-${prediction.confidence}`}
+						title={buildPredictionTooltip(prediction)}
+					>
+						🧠 {t('prediction.label')}: {formatPredictionEta(prediction)}
+						{prediction.confidence === 'low' && ` · ${t('prediction.learning')}`}
 					</span>
 				</div>
 			)}
@@ -521,7 +610,7 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 							📷 {issueUploading ? t('plant.uploading') : issueImageUrl ? t('plant.changePhoto') : t('plant.addPhoto')}
 							<input type="file" accept="image/*" onChange={handleIssuePhoto} disabled={issueUploading} hidden />
 						</label>
-						{issueImageUrl && <img className="issue-thumb" src={withBase(issueImageUrl)} alt="" />}
+						{issueImageUrl && <img className="issue-thumb" src={withBase(issueImageUrl)} alt="" loading="lazy" decoding="async" />}
 					</div>
 
 					{activeIssues.length > 0 && (
@@ -530,7 +619,7 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 							{activeIssues.map((issue) => (
 								<div key={issue.id} className="health-item active">
 									<span>{getIssueLabel(issue)} - {formatDate(issue.detectedDate)}</span>
-									{issue.imageUrl && <img className="issue-thumb" src={withBase(issue.imageUrl)} alt="" />}
+									{issue.imageUrl && <img className="issue-thumb" src={withBase(issue.imageUrl)} alt="" loading="lazy" decoding="async" />}
 									<button className="btn btn-sm btn-secondary" onClick={() => handleResolveIssue(issue.id)}>✓</button>
 								</div>
 							))}
@@ -543,7 +632,7 @@ export function PlantCard({ plant, readings, onWater, onFertilize, onEdit, onRef
 							{resolvedIssues.map((issue) => (
 								<div key={issue.id} className="health-item resolved">
 									<span>{getIssueLabel(issue)} - {formatDate(issue.detectedDate)} → {formatDate(issue.resolvedDate)}</span>
-									{issue.imageUrl && <img className="issue-thumb" src={withBase(issue.imageUrl)} alt="" />}
+									{issue.imageUrl && <img className="issue-thumb" src={withBase(issue.imageUrl)} alt="" loading="lazy" decoding="async" />}
 									{issue.treatment && <small>{issue.treatment}</small>}
 								</div>
 							))}
