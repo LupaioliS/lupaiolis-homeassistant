@@ -25,5 +25,6 @@ ENV MQTT_USER=
 ENV MQTT_PASS=
 ENV HA_DISCOVERY_PREFIX=homeassistant
 ENV METAPLANTS_LANG=it
+ENV SENSOR_POLL_SECONDS=20
 
 CMD [ "node", "dist/server/index.js" ]

@@ -3,11 +3,14 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import type { SeasonalSchedule, Season, PlantSensors } from '../../shared/types';
+import type { SeasonalSchedule, PlantSensors } from '../../shared/types';
+import { getCurrentSeason, getIntervalForSeason } from '../../shared/schedule';
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
-import { getAllReadings, getReadings, refreshPlantReadings } from '../sensors';
+import { getAllReadings, getReadings, refreshPlantReadings, refreshPrediction } from '../sensors';
+import { listSensorEntities } from '../homeassistant';
+import { dropPlantHistory } from '../history';
 
 const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/jpeg': '.jpg',
@@ -15,20 +18,6 @@ const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/webp': '.webp',
 	'image/gif': '.gif',
 };
-
-function getCurrentSeason(): Season {
-	const month = new Date().getMonth();
-	if (month >= 2 && month <= 4) return 'spring';
-	if (month >= 5 && month <= 7) return 'summer';
-	if (month >= 8 && month <= 10) return 'autumn';
-	return 'winter';
-}
-
-function getSeasonalInterval(schedule: SeasonalSchedule | undefined, season: Season, fallback: number): number {
-	const value = schedule?.[season];
-	if (typeof value === 'number' && value > 0) return value;
-	return fallback;
-}
 
 export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	// Upload an image, returns its public URL
@@ -99,8 +88,8 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		} = request.body;
 
 		const season = getCurrentSeason();
-		const computedWateringInterval = getSeasonalInterval(wateringSchedule, season, wateringIntervalDays ?? 3);
-		const computedFertilizingInterval = getSeasonalInterval(fertilizingSchedule, season, fertilizingIntervalDays ?? 14);
+		const computedWateringInterval = getIntervalForSeason(wateringSchedule, season, wateringIntervalDays ?? 3);
+		const computedFertilizingInterval = getIntervalForSeason(fertilizingSchedule, season, fertilizingIntervalDays ?? 14);
 
 		const plant = store.createPlant({
 			name,
@@ -151,10 +140,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const season = getCurrentSeason();
 		const body = { ...request.body };
 		if (body.wateringSchedule) {
-			body.wateringIntervalDays = getSeasonalInterval(body.wateringSchedule, season, body.wateringIntervalDays ?? 3);
+			body.wateringIntervalDays = getIntervalForSeason(body.wateringSchedule, season, body.wateringIntervalDays ?? 3);
 		}
 		if (body.fertilizingSchedule) {
-			body.fertilizingIntervalDays = getSeasonalInterval(body.fertilizingSchedule, season, body.fertilizingIntervalDays ?? 14);
+			body.fertilizingIntervalDays = getIntervalForSeason(body.fertilizingSchedule, season, body.fertilizingIntervalDays ?? 14);
 		}
 
 		const plant = store.updatePlant(request.params.id, body);
@@ -170,6 +159,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		const deleted = store.deletePlant(request.params.id);
 		if (!deleted) return reply.status(404).send({ error: 'Plant not found' });
 		removePlant(deleted);
+		dropPlantHistory(deleted.id);
 		broadcast({ type: 'plant-deleted', plantId: deleted.id });
 		return { success: true };
 	});
@@ -183,6 +173,9 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		if (plant) {
 			publishPlant(plant);
 			broadcast({ type: 'plant-updated', plant });
+			// Un'irrigazione appena registrata sposta sia il ciclo medio che il punto
+			// di partenza della curva: la stima va rifatta subito, non al prossimo poll.
+			if (type === 'water') refreshPrediction(plant);
 		}
 		return action;
 	});
@@ -191,6 +184,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	fastify.get<{ Params: { id: string } }>('/plants/:id/actions', async (request) => {
 		return store.getActions(request.params.id);
 	});
+
+	// Tutte le azioni in una richiesta sola: il client ne ha bisogno per ogni scheda
+	// e su rete mobile N richieste separate si sentono tutte.
+	fastify.get('/actions', async () => store.getAllActions());
 
 	// Add health issue
 	fastify.post<{ Params: { id: string }; Body: { type: 'pest' | 'disease' | 'fungus'; name: string; detectedDate: string; notes?: string; imageUrl?: string } }>('/plants/:id/health', async (request, reply) => {
@@ -235,19 +232,26 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 
 	fastify.get('/readings', async () => getAllReadings());
 
+	// Entità di Home Assistant proponibili come sensori (etichetta "metaplants",
+	// con fallback su tutti i sensori compatibili se l'etichetta non esiste).
+	fastify.get<{ Querystring: { refresh?: string } }>('/ha/entities', async (request) => {
+		return listSensorEntities(request.query.refresh === '1');
+	});
+
 	// Acknowledge a pending soil-jump prompt (user confirmed or skipped)
 	fastify.post<{ Params: { id: string } }>('/plants/:id/ack-soil-jump', async (request, reply) => {
 		const plant = store.getPlant(request.params.id);
 		if (!plant) return reply.status(404).send({ error: 'Plant not found' });
 		if (!plant.sensors) return reply.status(400).send({ error: 'No sensors configured' });
-		// Re-baseline lastSoilHumidity to the current reading so the still-wet soil
-		// (post-watering) isn't compared against the old pre-jump "dry" value again
-		// on the next poll, which would re-trigger the same jump immediately.
+		// Re-baseline lastSoilHumidity to the current reading e fa ripartire da adesso
+		// il periodo di calma: il terreno resta bagnato per ore anche quando l'utente
+		// risponde "no", e senza questo verrebbe segnalato lo stesso salto ad ogni poll.
 		const currentSoil = getReadings(plant.id)?.soilHumidity;
 		const updated = store.updatePlant(plant.id, {
 			sensors: {
 				...plant.sensors,
 				soilJumpPendingAck: false,
+				lastSoilJumpAt: new Date().toISOString(),
 				...(currentSoil != null ? { lastSoilHumidity: currentSoil } : {}),
 			},
 		});

@@ -205,4 +205,6 @@ export const store = {
 	getActions: (plantId: string): PlantAction[] => {
 		return readActions().filter((a) => a.plantId === plantId);
 	},
+
+	getAllActions: (): PlantAction[] => readActions(),
 };

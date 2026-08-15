@@ -214,6 +214,33 @@ header h1 {
   outline-offset: 1px;
 }
 
+/* Lettura riportata sulla scala imparata dal modello, accanto a quella grezza. */
+.soil-calibrated-pill {
+  font-weight: 600;
+  background: #ede9fe;
+  color: #6d28d9;
+  cursor: help;
+}
+
+/* Stima di quando servirà l'irrigazione: informativa finché non guida lo stato. */
+.prediction-pill {
+  background: #f5f3ff;
+  color: #6d28d9;
+  cursor: help;
+}
+
+.prediction-pill.confidence-low {
+  background: var(--green-100);
+  color: #6b7280;
+}
+
+.form-hint {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin: 0 0 10px;
+  line-height: 1.35;
+}
+
 .actions {
   display: flex;
   gap: 8px;

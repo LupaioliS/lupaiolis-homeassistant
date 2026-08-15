@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.10.0
+
+### Countdown
+
+- Fix the "in X days" countdown overstating the wait by up to a full day: remaining time was rounded up (`ceil`) on fractional days, so a plant due tomorrow morning was shown as "in 2d". It now counts calendar days ("tomorrow" when it's due the next day), matching what you'd count on a calendar. Same fix applied to the MQTT sensor states, and the day math now lives in one shared module (`src/shared/schedule.ts`) used by client, MQTT and API instead of three near-copies
+- Hover (or long press) on the watering/fertilizing pill to see the exact due date
+
+### Photos
+
+- Photos are resized to max 1600px and recompressed in the browser before uploading: uploads from a phone are much faster and the served image is no longer the multi-megabyte original
+- Uploaded images are now served with immutable long-lived cache headers, so they aren't re-downloaded on every visit
+- Card photos and thumbnails load lazily and asynchronously
+- All plant actions are fetched in a single request instead of one per card
+
+### Soil humidity and watering prompt
+
+- Sensor polling defaults to every 20s (was 60s) and all plants are read in parallel instead of sequentially. Configurable with the new `sensor_poll_seconds` option
+- Watering detection no longer requires the previous reading to be below the configured threshold — that made it miss every watering done before the soil got fully dry, which is most of them. It now triggers on a marked rise (default 10 points, per-plant override available) versus the lowest reading in the last 45 minutes, threshold or not
+- A 12h cooldown after a detected jump or a logged watering prevents the same watering being asked about twice
+- Sensor history moved out of `plants.json` into `history.json`, sampled into time buckets and persisted every 15 minutes: polling no longer rewrites the plant file on every read (SD card wear) and the history now spans ~14 days instead of 10 samples
+- Fix editing a plant wiping the server-managed sensor state (humidity baseline, pending prompt)
+
+### Watering estimate
+
+- New internal estimate of when each plant will need water, computed from the data already collected: a linear fit over the soil dry-down curve gives a % per day rate, and the intervals between past waterings give the plant's rhythm. No dependencies, a few hundred operations per plant
+- The soil percentage is calibrated to each plant: if you always water at 30%, that 30% is shown as 0% on a learned scale, displayed next to the raw reading
+- The estimate is advisory at first and only takes over the displayed watering status once it has learned enough (3+ watering cycles with a clean fit). The seasonal schedule stays as the reference, shown on hover
+- The estimate is also published in the MQTT attributes (`prediction`) for automations
+
+### Sensor selection
+
+- Sensors are now picked from a dropdown instead of typing the entity_id: the list comes from the Home Assistant entities labelled `metaplants`. Without that label the list falls back to every compatible sensor, and manual entry is always available
+
 ## 1.9.3
 
 - Keep a rolling history of the last 10 readings per sensor (temperature, ambient humidity, soil humidity) in `plants.json`, for future use such as trend charts

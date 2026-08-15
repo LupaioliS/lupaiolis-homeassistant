@@ -44,17 +44,79 @@ export interface PlantSensors {
 	// Il server ha rilevato un salto improvviso di umidità (probabile irrigazione):
 	// il client mostra il prompt e poi chiama ack-soil-jump per azzerare questo flag.
 	soilJumpPendingAck?: boolean;
-	// Ultime fino a 10 letture grezze per sensore (la più recente in fondo all'array),
-	// aggiornate ad ogni poll indipendentemente dalla logica di jump detection.
+	// Punti percentuali di risalita entro SOIL_JUMP_WINDOW_MS che fanno scattare il
+	// rilevamento di un'irrigazione. Opzionale: senza valore vale SOIL_JUMP_DELTA.
+	soilJumpDelta?: number;
+	// Ultimo salto rilevato: evita di richiedere conferma due volte per la stessa
+	// irrigazione mentre il terreno è ancora bagnato.
+	lastSoilJumpAt?: string;
+	// Deprecati: lo storico letture vive in history.json (vedi server/history.ts), che
+	// tiene giorni di dati invece di 10 campioni e non riscrive plants.json ad ogni poll.
+	// Restano solo per migrare i dati salvati dalle versioni <= 1.9.3.
 	temperatureHistory?: number[];
 	ambientHumidityHistory?: number[];
 	soilHumidityHistory?: number[];
+}
+
+/**
+ * Rimappatura della scala grezza del sensore su quella che conta per la pianta,
+ * imparata da come innaffi davvero: se innaffi sempre al 30%, per questa pianta
+ * il 30% grezzo è "terra asciutta", cioè lo 0% utile.
+ */
+export interface SoilCalibration {
+	// % grezza a cui l'utente innaffia di solito = 0% di acqua disponibile.
+	dryPoint: number;
+	// % grezza raggiunta subito dopo l'irrigazione = 100%.
+	wetPoint: number;
+	// Numero di irrigazioni con dati sensore da cui è stata ricavata.
+	samples: number;
+}
+
+export type PredictionConfidence = 'low' | 'medium' | 'high';
+
+export interface WateringPrediction {
+	// Data stimata della prossima irrigazione.
+	nextWateringAt: string;
+	// Giorni residui stimati (frazionari).
+	daysLeft: number;
+	// Velocità di asciugatura stimata, punti percentuali al giorno (> 0).
+	dryRatePerDay: number | null;
+	calibration: SoilCalibration | null;
+	// Lettura corrente riportata sulla scala calibrata (0-100), se disponibile.
+	normalizedSoilHumidity: number | null;
+	// Media dei giorni fra irrigazioni osservata nella stagione corrente.
+	averageCycleDays: number | null;
+	// Cicli completi di irrigazione usati per addestrare il modello.
+	cycles: number;
+	confidence: PredictionConfidence;
+	// 'sensor' = curva di asciugatura, 'history' = solo ritmo storico, 'blend' = entrambi.
+	source: 'sensor' | 'history' | 'blend';
 }
 export interface PlantReadings {
 	temperature: number | null;
 	ambientHumidity: number | null;
 	soilHumidity: number | null;
 	updatedAt: string;
+	// Stima interna: quando servirà la prossima irrigazione e come leggere la % grezza.
+	prediction?: WateringPrediction | null;
+}
+
+/** Un'entità di Home Assistant proposta nella scelta dei sensori. */
+export interface HaEntityOption {
+	entityId: string;
+	name: string;
+	deviceClass?: string;
+	unit?: string;
+	state?: string;
+}
+
+export interface HaEntityList {
+	// false = nessun token HA (dev senza credenziali): il client resta sull'input libero.
+	available: boolean;
+	// true = l'elenco arriva dall'etichetta, false = fallback su tutti i sensori compatibili.
+	labeled: boolean;
+	label: string;
+	entities: HaEntityOption[];
 }
 
 export interface Plant {

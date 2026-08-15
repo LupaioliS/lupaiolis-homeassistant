@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Plant, PlantReadings } from '../shared/types';
+import type { Plant, PlantAction, PlantReadings } from '../shared/types';
 import { api } from './api';
 import { PlantCard, isDoneToday } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
@@ -7,6 +7,7 @@ import { ActionDialog } from './components/ActionDialog';
 import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
 import { getIntervalForSeason, isOverdue } from './plantStatus';
+import { assessWater } from './waterStatus';
 import { BASE_PATH } from './basePath';
 
 type SortOption = 'name' | 'species' | 'attention';
@@ -19,6 +20,7 @@ export function App() {
 	const [editingPlant, setEditingPlant] = useState<Plant | null>(null);
 	const [ready, setReady] = useState(false);
 	const [readings, setReadings] = useState<Record<string, PlantReadings>>({});
+	const [actionsByPlant, setActionsByPlant] = useState<Record<string, PlantAction[]>>({});
 	const [searchTerm, setSearchTerm] = useState('');
 	const [sortBy, setSortBy] = useState<SortOption>('name');
 	const [soilWaterQueue, setSoilWaterQueue] = useState<Plant[]>([]);
@@ -32,12 +34,21 @@ export function App() {
 
 
 	const loadPlants = useCallback(async () => {
-		const [data, initialReadings] = await Promise.all([
+		const [data, initialReadings, allActions] = await Promise.all([
 			api.getPlants(),
 			api.getReadings().catch(() => ({} as Record<string, PlantReadings>)),
+			api.getAllActions().catch(() => [] as PlantAction[]),
 		]);
 		setPlants(data);
 		setReadings(initialReadings);
+
+		// Una richiesta sola invece di una per scheda: le azioni servono a ogni
+		// PlantCard per i suggerimenti stagionali e per le ultime quantità usate.
+		const grouped: Record<string, PlantAction[]> = {};
+		for (const action of allActions) {
+			(grouped[action.plantId] ??= []).push(action);
+		}
+		setActionsByPlant(grouped);
 
 		// Prompt for plants whose soil sensor jumped while the app was closed (server-persisted flag).
 		// Plants already watered today don't need the prompt — auto-acknowledge those instead of asking again.
@@ -156,13 +167,10 @@ export function App() {
 	const currentSeason = getCurrentSeason();
 
 	const getAttention = (plant: Plant) => {
-		const waterIntervalDays = getIntervalForSeason(plant.wateringSchedule, currentSeason, plant.wateringIntervalDays ?? 3);
 		const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, currentSeason, plant.fertilizingIntervalDays ?? 14);
-		const soilThreshold = plant.sensors?.soilHumidityThreshold;
-		const soilHumidity = readings[plant.id]?.soilHumidity;
-		// Il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
-		const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
-		const needsWater = soilNeedsWater || isOverdue(plant.lastWatered, waterIntervalDays);
+		// Stessa logica della scheda (sensore > stima matura > programma): banner e
+		// scheda non possono più dire cose diverse sulla stessa pianta.
+		const needsWater = assessWater(plant, readings[plant.id], currentSeason).overdue;
 		const needsFertilize = isOverdue(plant.lastFertilized, fertIntervalDays);
 		const activeIssueCount = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate).length;
 		return { needsWater, needsFertilize, activeIssueCount };
@@ -288,6 +296,7 @@ export function App() {
 							key={plant.id}
 							plant={plant}
 							readings={readings[plant.id]}
+							actions={actionsByPlant[plant.id]}
 							onWater={(amountMl) => handleWater(plant.id, amountMl)}
 							onFertilize={(amountGrams) => handleFertilize(plant.id, amountGrams)}
 							onEdit={() => handleEdit(plant)}

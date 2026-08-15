@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Plant, PlantSensors, SeasonalSchedule } from '../../shared/types';
+import type { HaEntityList, HaEntityOption, Plant, PlantSensors, SeasonalSchedule } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
@@ -13,6 +13,91 @@ interface PlantFormProps {
 }
 
 const defaultSchedule: SeasonalSchedule = { spring: 3, summer: 2, autumn: 5, winter: 7 };
+
+// Valore sentinella dell'opzione "scrivi a mano": non può collidere con un entity_id.
+const MANUAL_OPTION = '__manual__';
+
+interface SensorSelectProps {
+	label: string;
+	value: string;
+	onChange: (value: string) => void;
+	entityList: HaEntityList | null;
+	/** device_class da mostrare per primi in questo campo. */
+	preferred: string[];
+	placeholder: string;
+}
+
+/**
+ * Scelta del sensore da elenco invece che scrivendo l'entity_id a mano.
+ *
+ * L'elenco arriva dalle entità etichettate "metaplants" in Home Assistant. Resta
+ * sempre disponibile l'inserimento manuale: senza token HA (sviluppo), con entità
+ * non etichettate, o se l'elenco non si carica, il campo torna a essere di testo.
+ */
+function SensorSelect({ label, value, onChange, entityList, preferred, placeholder }: SensorSelectProps) {
+	const entities = entityList?.entities ?? [];
+	const knownValue = value !== '' && entities.some((e) => e.entityId === value);
+	// Un valore già impostato ma assente dall'elenco (es. entità senza etichetta)
+	// non va perso: si apre direttamente in modalità manuale.
+	const [manual, setManual] = useState(value !== '' && entityList != null && !knownValue);
+
+	useEffect(() => {
+		if (value !== '' && entityList != null && !entities.some((e) => e.entityId === value)) setManual(true);
+	}, [entityList, value, entities]);
+
+	const useList = entityList?.available && entities.length > 0 && !manual;
+
+	const describe = (entity: HaEntityOption) => {
+		const detail = [entity.state != null && entity.state !== 'unavailable' ? `${entity.state}${entity.unit ?? ''}` : null]
+			.filter(Boolean)
+			.join('');
+		return detail ? `${entity.name} — ${detail}` : entity.name;
+	};
+
+	const recommended = entities.filter((e) => e.deviceClass && preferred.includes(e.deviceClass));
+	const others = entities.filter((e) => !recommended.includes(e));
+
+	return (
+		<div className="form-group">
+			<label>{label}</label>
+			{useList ? (
+				<select
+					value={value}
+					onChange={(e) => {
+						if (e.target.value === MANUAL_OPTION) setManual(true);
+						else onChange(e.target.value);
+					}}
+				>
+					<option value="">{t('plant.sensorNone')}</option>
+					{recommended.length > 0 && (
+						<optgroup label={t('plant.sensorRecommended')}>
+							{recommended.map((e) => (
+								<option key={e.entityId} value={e.entityId}>{describe(e)}</option>
+							))}
+						</optgroup>
+					)}
+					{others.length > 0 && (
+						<optgroup label={t('plant.sensorOthers')}>
+							{others.map((e) => (
+								<option key={e.entityId} value={e.entityId}>{describe(e)}</option>
+							))}
+						</optgroup>
+					)}
+					<option value={MANUAL_OPTION}>{t('plant.sensorManual')}</option>
+				</select>
+			) : (
+				<>
+					<input value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+					{entityList?.available && entities.length > 0 && (
+						<button type="button" className="btn btn-link btn-sm" onClick={() => setManual(false)}>
+							{t('plant.sensorBackToList')}
+						</button>
+					)}
+				</>
+			)}
+		</div>
+	);
+}
 
 export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps) {
 	const [name, setName] = useState(plant?.name ?? '');
@@ -43,6 +128,14 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 	const [uploading, setUploading] = useState(false);
 	const [wateringSuggestions, setWateringSuggestions] = useState<Partial<SeasonalSchedule>>({});
 	const [fertilizingSuggestions, setFertilizingSuggestions] = useState<Partial<SeasonalSchedule>>({});
+	const [entityList, setEntityList] = useState<HaEntityList | null>(null);
+
+	useEffect(() => {
+		api.getHaEntities()
+			.then(setEntityList)
+			// Senza elenco i campi sensore restano di testo libero: nessun blocco.
+			.catch(() => setEntityList({ available: false, labeled: false, label: 'metaplants', entities: [] }));
+	}, []);
 
 	useEffect(() => {
 		if (!plant) return;
@@ -69,6 +162,32 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 		}
 	};
 
+	const buildSensors = (): PlantSensors | undefined => {
+		const temperature = sensors.temperature?.trim() || undefined;
+		const ambientHumidity = sensors.ambientHumidity?.trim() || undefined;
+		const soilHumidity = sensors.soilHumidity?.trim() || undefined;
+		if (!temperature && !ambientHumidity && !soilHumidity) return undefined;
+
+		// Si parte dai sensori salvati per non cancellare i campi che gestisce il
+		// server (baseline umidità, salto in attesa di conferma): il PUT sostituisce
+		// l'intero oggetto sensors, quindi quello che non si rimanda qui va perso.
+		const next: PlantSensors = {
+			...plant?.sensors,
+			temperature,
+			ambientHumidity,
+			soilHumidity,
+			soilHumidityThreshold: soilHumidity ? sensors.soilHumidityThreshold ?? undefined : undefined,
+			soilJumpDelta: soilHumidity ? sensors.soilJumpDelta ?? undefined : undefined,
+		};
+		if (!soilHumidity) {
+			// Senza sensore terreno lo stato che lo riguarda non ha più senso.
+			delete next.lastSoilHumidity;
+			delete next.soilJumpPendingAck;
+			delete next.lastSoilJumpAt;
+		}
+		return next;
+	};
+
 	const handleSubmit = (e: React.FormEvent) => {
 		e.preventDefault();
 		const season = getCurrentSeason();
@@ -84,16 +203,7 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 			fertilizingIntervalDays: fertilizingSchedule[season],
 			wateringSchedule,
 			fertilizingSchedule,
-			sensors: (sensors.temperature?.trim() || sensors.ambientHumidity?.trim() || sensors.soilHumidity?.trim())
-				? {
-					temperature: sensors.temperature?.trim() || undefined,
-					ambientHumidity: sensors.ambientHumidity?.trim() || undefined,
-					soilHumidity: sensors.soilHumidity?.trim() || undefined,
-					soilHumidityThreshold: sensors.soilHumidity?.trim() && sensors.soilHumidityThreshold != null
-						? sensors.soilHumidityThreshold
-						: undefined,
-				}
-			: undefined,
+			sensors: buildSensors(),
 			notes,
 		});
 	};
@@ -108,7 +218,7 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 					<div className="form-group">
 						<label>{t('plant.photo')}</label>
 						<div className="photo-field">
-							{imageUrl && <img className="photo-preview" src={withBase(imageUrl)} alt="" />}
+							{imageUrl && <img className="photo-preview" src={withBase(imageUrl)} alt="" loading="lazy" decoding="async" />}
 							<div className="photo-actions">
 								<label className="btn btn-secondary btn-sm">
 									{uploading ? t('plant.uploading') : imageUrl ? t('plant.changePhoto') : t('plant.addPhoto')}
@@ -190,42 +300,60 @@ export function PlantForm({ plant, onSubmit, onClose, onDelete }: PlantFormProps
 
 					<fieldset className="form-fieldset">
 						<legend>{t('plant.sensorsTitle')}</legend>
-						<div className="form-group">
-							<label>{t('plant.sensorTemperature')}</label>
-							<input
-								value={sensors.temperature ?? ''}
-								onChange={(e) => setSensors({ ...sensors, temperature: e.target.value })}
-								placeholder={t('plant.sensorTemperaturePlaceholder')}
-							/>
-						</div>
-						<div className="form-group">
-							<label>{t('plant.sensorAmbientHumidity')}</label>
-							<input
-								value={sensors.ambientHumidity ?? ''}
-								onChange={(e) => setSensors({ ...sensors, ambientHumidity: e.target.value })}
-								placeholder={t('plant.sensorAmbientHumidityPlaceholder')}
-							/>
-						</div>
-						<div className="form-group">
-							<label>{t('plant.sensorSoilHumidity')}</label>
-							<input
-								value={sensors.soilHumidity ?? ''}
-								onChange={(e) => setSensors({ ...sensors, soilHumidity: e.target.value })}
-								placeholder={t('plant.sensorSoilHumidityPlaceholder')}
-							/>
-						</div>
+						{entityList?.available && !entityList.labeled && (
+							<p className="form-hint">
+								{t('plant.sensorLabelHint').replace('{label}', entityList.label)}
+							</p>
+						)}
+						<SensorSelect
+							label={t('plant.sensorTemperature')}
+							value={sensors.temperature ?? ''}
+							onChange={(value) => setSensors({ ...sensors, temperature: value })}
+							entityList={entityList}
+							preferred={['temperature']}
+							placeholder={t('plant.sensorTemperaturePlaceholder')}
+						/>
+						<SensorSelect
+							label={t('plant.sensorAmbientHumidity')}
+							value={sensors.ambientHumidity ?? ''}
+							onChange={(value) => setSensors({ ...sensors, ambientHumidity: value })}
+							entityList={entityList}
+							preferred={['humidity']}
+							placeholder={t('plant.sensorAmbientHumidityPlaceholder')}
+						/>
+						<SensorSelect
+							label={t('plant.sensorSoilHumidity')}
+							value={sensors.soilHumidity ?? ''}
+							onChange={(value) => setSensors({ ...sensors, soilHumidity: value })}
+							entityList={entityList}
+							preferred={['moisture', 'humidity']}
+							placeholder={t('plant.sensorSoilHumidityPlaceholder')}
+						/>
 						{sensors.soilHumidity?.trim() && (
-							<div className="form-group">
-								<label>{t('plant.soilHumidityThreshold')}</label>
-								<input
-									type="number"
-									min={0}
-									max={100}
-									value={sensors.soilHumidityThreshold ?? ''}
-									onChange={(e) => setSensors({ ...sensors, soilHumidityThreshold: e.target.value ? Number(e.target.value) : undefined })}
-									placeholder={t('plant.soilHumidityThresholdPlaceholder')}
-								/>
-							</div>
+							<>
+								<div className="form-group">
+									<label>{t('plant.soilHumidityThreshold')}</label>
+									<input
+										type="number"
+										min={0}
+										max={100}
+										value={sensors.soilHumidityThreshold ?? ''}
+										onChange={(e) => setSensors({ ...sensors, soilHumidityThreshold: e.target.value ? Number(e.target.value) : undefined })}
+										placeholder={t('plant.soilHumidityThresholdPlaceholder')}
+									/>
+								</div>
+								<div className="form-group">
+									<label>{t('plant.soilJumpDelta')}</label>
+									<input
+										type="number"
+										min={1}
+										max={100}
+										value={sensors.soilJumpDelta ?? ''}
+										onChange={(e) => setSensors({ ...sensors, soilJumpDelta: e.target.value ? Number(e.target.value) : undefined })}
+										placeholder={t('plant.soilJumpDeltaPlaceholder')}
+									/>
+								</div>
+							</>
 						)}
 					</fieldset>
 

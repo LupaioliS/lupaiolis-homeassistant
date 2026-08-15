@@ -12,6 +12,19 @@ interface HaOptions {
 	mqtt_pass?: string;
 	ha_discovery_prefix?: string;
 	lang?: string;
+	sensor_poll_seconds?: number;
+}
+
+// Limiti di sicurezza: sotto i 5s si martella Home Assistant senza guadagno reale,
+// sopra i 5 minuti il prompt "hai innaffiato?" arriverebbe troppo tardi.
+const MIN_POLL_SECONDS = 5;
+const MAX_POLL_SECONDS = 300;
+const DEFAULT_POLL_SECONDS = 20;
+
+function readPollSeconds(raw: unknown): number {
+	const value = Number(raw);
+	if (!Number.isFinite(value) || value <= 0) return DEFAULT_POLL_SECONDS;
+	return Math.min(MAX_POLL_SECONDS, Math.max(MIN_POLL_SECONDS, Math.round(value)));
 }
 
 function readHaOptions(): HaOptions {
@@ -39,6 +52,8 @@ export interface AppConfig {
 	mqttPass: string;
 	discoveryPrefix: string;
 	lang: string;
+	/** Ogni quanto rileggere i sensori da Home Assistant. */
+	sensorPollSeconds: number;
 }
 
 export const config: AppConfig = {
@@ -47,4 +62,5 @@ export const config: AppConfig = {
 	mqttPass: haOptions.mqtt_pass ?? process.env.MQTT_PASS ?? '',
 	discoveryPrefix: haOptions.ha_discovery_prefix || process.env.HA_DISCOVERY_PREFIX || 'homeassistant',
 	lang: haOptions.lang || process.env.METAPLANTS_LANG || 'it',
+	sensorPollSeconds: readPollSeconds(haOptions.sensor_poll_seconds ?? process.env.SENSOR_POLL_SECONDS),
 };
