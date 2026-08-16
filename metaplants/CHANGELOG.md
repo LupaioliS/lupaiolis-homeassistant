@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.10.2
+
+Soil moisture sensors drift. A sensor that peaked at 68% right after watering can peak at 48% a few weeks later for the same soak, and until now the learned scale kept the old value alive: the 100% reference was the 75th percentile of *every* watering still in the 14-day history, so a genuinely decalibrated sensor read as a half-empty plant right after being watered. This release makes the calibration describe the sensor as it is now.
+
+- The calibration window is limited to the last 3 observed waterings instead of every watering in the 14-day history, so a drifting sensor is retracked in three cycles rather than two weeks. This applies to the 0% reference too, which matters more: it is what the estimate divides by, so a stale one pushes the countdown towards "water now" even on freshly watered soil
+- The 100% reference now moves asymmetrically. It rises immediately when the current cycle reads higher — including when the watering was never confirmed through the prompt, since a reading the sensor actually reached is evidence in itself — but only drops after 2 consecutive cycles stay below the reference. A single stingy top-up must not collapse the scale, a drifting sensor should; they are told apart by whether it persists. The reference never falls below a peak actually observed in the recent cycles
+- Both reference points are now searched up to 12h before the logged watering, instead of 3h. A watering logged through the "did you water it?" prompt can be confirmed hours after the fact — at the end of the day, typically — and in that case the previous window missed the real peak entirely and took the 0% point from a reading that was already wet
+
+A sensor that has just started reading low keeps its old 100% for one more cycle, by design: the second low reading is what distinguishes drift from a shallow watering. Nothing is persisted, so the new scale applies as soon as the add-on restarts.
+
 ## 1.10.1
 
 - The details behind the status pills (estimate, calibration reference points, seasonal due date) are now reachable on a phone: `title` tooltips only appear on mouse hover, so on touch that information was simply unreachable. Pills carrying details show a small dot and open a panel below the card when tapped; hovering with a mouse still shows the tooltip as before
