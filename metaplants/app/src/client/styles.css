@@ -214,11 +214,12 @@ header h1 {
   outline-offset: 1px;
 }
 
-/* Lettura riportata sulla scala imparata dal modello, accanto a quella grezza. */
-.soil-calibrated-pill {
-  font-weight: 600;
-  background: #ede9fe;
-  color: #6d28d9;
+/* Lettura grezza del sensore: sta accanto a quella calibrata ma a voce più bassa,
+   perché non è più lei a far scattare l'allerta. */
+.soil-raw-pill {
+  font-weight: 500;
+  background: #f3f4f6;
+  color: #6b7280;
 }
 
 /* Stima di quando servirà l'irrigazione: informativa finché non guida lo stato. */

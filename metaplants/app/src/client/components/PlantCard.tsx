@@ -118,11 +118,24 @@ function buildPredictionInfo(prediction: WateringPrediction): string[] {
 function buildCalibrationInfo(prediction: WateringPrediction): string[] {
 	const calibration = prediction.calibration;
 	if (!calibration) return [];
-	return [
+	const lines = [
 		t('prediction.calibrationTitle'),
 		t('prediction.calibrationDry').replace('{value}', String(calibration.dryPoint)),
 		t('prediction.calibrationWet').replace('{value}', String(calibration.wetPoint)),
 	];
+	// La scala si muove solo sulle irrigazioni registrate: dirlo qui evita di
+	// chiedersi perché il numero non cambia mentre quello grezzo balla.
+	if (calibration.samples > 0) {
+		lines.push(t('prediction.calibrationSamples').replace('{count}', String(calibration.samples)));
+		if (calibration.lastCalibratedAt) {
+			lines.push(
+				t('prediction.calibrationAt').replace('{date}', formatDateTime(new Date(calibration.lastCalibratedAt).getTime())),
+			);
+		}
+	} else {
+		lines.push(t('prediction.calibrationPending'));
+	}
+	return lines;
 }
 
 /**
@@ -249,13 +262,19 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 	const soilThreshold = plant.sensors?.soilHumidityThreshold;
 	// Il punto "asciutto" appreso descrive la pianta meglio della soglia scritta a mano.
 	const soilDryReference = prediction?.calibration?.dryPoint ?? soilThreshold;
-	const soilNeedsWater = water.soilBelowThreshold;
+	const soilNeedsWater = water.soilNeedsWater;
+	// % sulla scala della pianta: quando c'è è lei a comandare, e la grezza scala a margine.
+	const normalizedSoil = water.soil.normalized;
 	const scheduleStatus = getStatus(plant.lastWatered, water.intervalDays);
 
 	// Finché la stima non ha imparato abbastanza resta a margine: qui comanda solo
 	// quando assessWater la promuove (confidence alta).
 	const waterStatus = soilNeedsWater
-		? { overdue: true, label: t('status.soilSensorWater'), dueAt: scheduleStatus.dueAt }
+		? {
+			overdue: true,
+			label: water.soil.source === 'ai' ? t('status.aiSoilWater') : t('status.soilSensorWater'),
+			dueAt: scheduleStatus.dueAt,
+		}
 		: water.source === 'prediction' && prediction
 			? { overdue: water.overdue, label: `🧠 ${formatPredictionEta(prediction)}`, dueAt: scheduleStatus.dueAt }
 			: scheduleStatus;
@@ -268,7 +287,12 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 		? [`${t('status.scheduleDue')}: ${formatDateTime(fertStatus.dueAt)}`]
 		: [];
 	const soilInfo = [
-		...(soilThreshold != null ? [`${t('plant.soilHumidityThreshold')}: ${soilThreshold}%`] : []),
+		// Con una scala calibrata la soglia manuale non innesca più niente: dirlo evita
+		// di andarla a ritoccare quando l'allerta non arriva al numero che ci si aspetta.
+		...(water.soil.learned ? [t('prediction.rawSecondary')] : []),
+		...(soilThreshold != null
+			? [`${t('plant.soilHumidityThreshold')}: ${soilThreshold}%${water.soil.learned ? ` (${t('prediction.thresholdUnused')})` : ''}`]
+			: []),
 		...(prediction ? buildCalibrationInfo(prediction) : []),
 	];
 	const calibratedInfo = prediction ? buildCalibrationInfo(prediction) : [];
@@ -555,29 +579,37 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 
 			{readings?.soilHumidity != null && (
 				<div className="status">
+					{/* Prima la lettura riportata sulla scala della pianta: se innaffi sempre
+					    al 30%, quel 30% grezzo qui è 0% — ed è questo 0% a far scattare
+					    l'allerta, non il numero del sensore, che si scalibra. */}
+					{normalizedSoil != null && (
+						<InfoPill
+							id="calibrated"
+							className={`status-item soil-humidity-pill ${soilNeedsWater ? 'overdue' : ''}`}
+							style={getSoilHumidityStyle(normalizedSoil, 0, 100)}
+							lines={calibratedInfo}
+							openId={openInfo}
+							onToggle={setOpenInfo}
+						>
+							🧠 {normalizedSoil}%
+						</InfoPill>
+					)}
 					<InfoPill
 						id="soil"
-						className={`status-item soil-humidity-pill ${soilNeedsWater ? 'overdue' : ''}`}
-						style={soilDryReference != null ? getSoilHumidityStyle(readings.soilHumidity, soilDryReference, prediction?.calibration?.wetPoint) : undefined}
+						className={
+							normalizedSoil != null
+								? 'status-item soil-raw-pill'
+								: `status-item soil-humidity-pill ${soilNeedsWater ? 'overdue' : ''}`
+						}
+						style={normalizedSoil == null && soilDryReference != null
+							? getSoilHumidityStyle(readings.soilHumidity, soilDryReference, prediction?.calibration?.wetPoint)
+							: undefined}
 						lines={soilInfo}
 						openId={openInfo}
 						onToggle={setOpenInfo}
 					>
 						🪴 {readings.soilHumidity}%
 					</InfoPill>
-					{/* Lettura riportata sulla scala della pianta: se innaffi sempre al 30%,
-					    quel 30% grezzo qui è 0%, che è l'informazione che serve davvero. */}
-					{prediction?.normalizedSoilHumidity != null && prediction.calibration && (
-						<InfoPill
-							id="calibrated"
-							className="status-item soil-calibrated-pill"
-							lines={calibratedInfo}
-							openId={openInfo}
-							onToggle={setOpenInfo}
-						>
-							🧠 {prediction.normalizedSoilHumidity}%
-						</InfoPill>
-					)}
 				</div>
 			)}
 

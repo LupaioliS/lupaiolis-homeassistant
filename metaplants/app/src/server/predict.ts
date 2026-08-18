@@ -11,7 +11,10 @@ import { getSamples, samplePeak, type Sample } from './history';
  *
  * Impara due cose:
  *  1. la CALIBRAZIONE della scala del sensore — se innaffi sistematicamente al 30%,
- *     allora per questa pianta il 30% grezzo è terra asciutta, cioè lo 0% utile;
+ *     allora per questa pianta il 30% grezzo è terra asciutta, cioè lo 0% utile.
+ *     È questa scala, non la lettura grezza, a far scattare l'allerta (shared/soil.ts),
+ *     e si muove SOLO sulle irrigazioni registrate: pulsante "acqua" o conferma del
+ *     prompt "hai innaffiato?". Niente azione, niente ritaratura;
  *  2. la VELOCITÀ di asciugatura in punti percentuali al giorno, da cui ricava
  *     quanto manca al livello a cui di solito innaffi.
  * Il ritmo storico fra un'irrigazione e l'altra fa da rete di sicurezza quando il
@@ -136,13 +139,22 @@ function waterTimestamps(actions: PlantAction[]): number[] {
 }
 
 interface CycleObservation {
+	/** Istante dell'irrigazione confermata da cui arriva l'osservazione. */
+	at: number;
 	/** Minimo prima dell'acqua: il livello a cui questa pianta viene innaffiata. */
 	dry: number | null;
 	/** Massimo attorno all'irrigazione: il livello del terreno pieno. */
 	wet: number | null;
 }
 
-/** Cosa ha visto il sensore attorno ad ogni irrigazione, in ordine cronologico. */
+/**
+ * Cosa ha visto il sensore attorno ad ogni irrigazione, in ordine cronologico.
+ *
+ * `waterings` contiene solo azioni `water` registrate davvero: pulsante "acqua"
+ * (app, MQTT o registrazione manuale) oppure conferma del prompt "hai innaffiato?".
+ * Un salto rilevato e non confermato non arriva fin qui, ed è voluto: la taratura
+ * si muove solo quando sai per certo che c'è stata acqua.
+ */
 function observeCycles(soil: Sample[], waterings: number[]): CycleObservation[] {
 	const observations: CycleObservation[] = [];
 	for (const w of waterings) {
@@ -155,6 +167,7 @@ function observeCycles(soil: Sample[], waterings: number[]): CycleObservation[] 
 		const around = soil.filter((s) => s.t >= w - ACTION_LAG_MS && s.t <= w + WET_PEAK_WINDOW_MS);
 		if (before.length === 0 && around.length === 0) continue;
 		observations.push({
+			at: w,
 			dry: before.length > 0 ? Math.min(...before.map((s) => s.v)) : null,
 			wet: around.length > 0 ? Math.max(...around.map(samplePeak)) : null,
 		});
@@ -162,36 +175,27 @@ function observeCycles(soil: Sample[], waterings: number[]): CycleObservation[] 
 	return observations;
 }
 
-/** Massimo visto nel ciclo ancora aperto, cioè da dopo l'ultima irrigazione. */
-function openCyclePeak(soil: Sample[], waterings: number[]): number | null {
-	const lastWater = waterings[waterings.length - 1];
-	if (lastWater == null) return null;
-	const since = soil.filter((s) => s.t >= lastWater);
-	return since.length > 0 ? Math.max(...since.map(samplePeak)) : null;
-}
-
 /**
  * Il livello del terreno "pieno", cioè il 100% della scala.
  *
  * "Pieno" è per natura un estremo, non una media: una bagnata abbondante conta più
  * di un rabbocco, quindi il riferimento è il 75° percentile dei cicli recenti. Il
- * tetto però si deve muovere in modo asimmetrico, perché salire e scendere non
- * hanno lo stesso significato:
- *  - SALE subito, appena il ciclo in corso arriva più in alto. Se il sensore ci
- *    arriva, ci arriva — vale anche senza un'azione registrata, quindi recupera pure
- *    le irrigazioni che non hai confermato.
- *  - SCENDE solo dopo WET_DROP_CONFIRMATIONS cicli consecutivi sotto il riferimento.
- *    Una singola innaffiata avara non deve schiacciare la scala; un sensore che
- *    deriva verso il basso invece sì, e si distingue proprio perché insiste.
- * In ogni caso il tetto non scende mai sotto il picco più alto realmente osservato
- * nei cicli recenti: è sempre un valore che il sensore ha toccato davvero.
+ * tetto scende solo dopo WET_DROP_CONFIRMATIONS cicli consecutivi sotto il
+ * riferimento: una singola innaffiata avara non deve schiacciare la scala, un
+ * sensore che deriva verso il basso invece sì, e si distingue proprio perché insiste.
+ *
+ * Fino alla 1.10.2 il tetto si alzava anche da solo, appena il ciclo in corso
+ * leggeva più in alto, per recuperare le irrigazioni mai confermate. Non lo fa più:
+ * ora la scala IA è ciò che fa scattare l'allerta, quindi deve muoversi solo su
+ * eventi certi — pulsante "acqua" o conferma del prompt. Un picco raccolto dal
+ * ciclo aperto (o dalla deriva del sensore verso l'alto) altrimenti sposterebbe
+ * l'allerta senza che nessuno abbia mai detto che c'è stata acqua.
  */
-function resolveWetPoint(wetValues: number[], openPeak: number | null): number {
+function resolveWetPoint(wetValues: number[]): number {
 	const baseline = percentile(wetValues, 0.75);
 	const tail = wetValues.slice(-WET_DROP_CONFIRMATIONS);
 	const drifting = tail.length === WET_DROP_CONFIRMATIONS && tail.every((v) => v < baseline);
-	const reference = drifting ? Math.max(...tail) : baseline;
-	return openPeak != null ? Math.max(reference, openPeak) : reference;
+	return drifting ? Math.max(...tail) : baseline;
 }
 
 /**
@@ -205,18 +209,20 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number): S
 	const dryValues = recent.map((o) => o.dry).filter((v): v is number => v != null);
 	const wetValues = recent.map((o) => o.wet).filter((v): v is number => v != null);
 
-	if (dryValues.length === 0) {
-		// Nessuna irrigazione osservata dal sensore: si ripiega sulla soglia impostata a mano.
+	if (dryValues.length === 0 || wetValues.length === 0) {
+		// Nessuna irrigazione confermata che il sensore abbia visto: si ripiega sulla
+		// soglia impostata a mano, che diventa lo 0% della scala. Con samples: 0 chi
+		// legge sa che è un innesco provvisorio, non qualcosa di imparato: la % IA qui
+		// scatta esattamente dove scattava la soglia grezza, finché non arriva la prima
+		// irrigazione registrata.
 		if (fallbackDry == null || soil.length === 0) return null;
 		const observedPeak = Math.max(...soil.map(samplePeak));
 		if (observedPeak - fallbackDry < MIN_CALIBRATION_SPAN) return null;
-		return { dryPoint: round(fallbackDry), wetPoint: round(observedPeak), samples: 0 };
+		return { dryPoint: round(fallbackDry), wetPoint: round(observedPeak), samples: 0, lastCalibratedAt: null };
 	}
 
 	const dryPoint = median(dryValues);
-	const wetPoint = wetValues.length > 0
-		? resolveWetPoint(wetValues, openCyclePeak(soil, waterings))
-		: Math.max(...soil.map(samplePeak));
+	const wetPoint = resolveWetPoint(wetValues);
 
 	if (wetPoint - dryPoint < MIN_CALIBRATION_SPAN) return null;
 
@@ -224,6 +230,7 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number): S
 		dryPoint: round(dryPoint),
 		wetPoint: round(wetPoint),
 		samples: recent.length,
+		lastCalibratedAt: new Date(recent[recent.length - 1].at).toISOString(),
 	};
 }
 

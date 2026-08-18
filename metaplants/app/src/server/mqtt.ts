@@ -1,6 +1,7 @@
 import mqtt from 'mqtt';
 import type { Plant } from '../shared/types';
 import { DAY_MS, describeDue, getCurrentSeason, getIntervalForSeason } from '../shared/schedule';
+import { assessSoil } from '../shared/soil';
 import { store } from './store';
 import { broadcast } from './events';
 import { mt } from './i18n';
@@ -248,6 +249,27 @@ function publishDiscovery(plant: Plant) {
 		{ retain: true }
 	);
 
+	// Soil humidity on the plant's own learned scale: 0% = "you water it around here",
+	// 100% = "just watered". Recalibrated on every logged watering, so it stays
+	// comparable over time while the raw sensor % drifts.
+	client.publish(
+		`${DISCOVERY_PREFIX}/sensor/${deviceId}/soil_humidity_ai/config`,
+		JSON.stringify({
+			name: `${plant.name} ${mt('entities.soil_humidity_ai')}`,
+			object_id: `${slug}_soil_humidity_ai`,
+			unique_id: `${deviceId}_soil_humidity_ai`,
+			state_topic: `${TOPIC_PREFIX}/plant/${slug}/soil_humidity_ai`,
+			json_attributes_topic: `${TOPIC_PREFIX}/plant/${slug}/attributes`,
+			device_class: 'humidity',
+			state_class: 'measurement',
+			unit_of_measurement: '%',
+			device,
+			icon: 'mdi:brain',
+			availability,
+		}),
+		{ retain: true }
+	);
+
 	// Next fertilizing date sensor (for automations)
 	client.publish(
 		`${DISCOVERY_PREFIX}/sensor/${deviceId}/fertilizing_next/config`,
@@ -369,17 +391,24 @@ function publishState(plant: Plant) {
 	const wateringIntervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
 	const fertilizingIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, season, plant.fertilizingIntervalDays ?? 14);
 
-	// Watering state — il sensore di umidità del terreno, se sotto soglia, vince sul programma a tempo.
-	const soilThreshold = plant.sensors?.soilHumidityThreshold;
+	// Watering state — il terreno secco vince sul programma a tempo. "Secco" lo decide
+	// la scala calibrata (shared/soil.ts): la lettura grezza deriva, la scala si ritara
+	// ad ogni irrigazione registrata. Stessa funzione usata dal client, così l'allerta
+	// in Home Assistant e la scheda nell'app non possono dire cose diverse.
 	const currentReadings = getReadings(plant.id);
-	const soilHumidity = currentReadings?.soilHumidity;
 	const prediction = currentReadings?.prediction;
-	const soilNeedsWater = soilThreshold != null && soilHumidity != null && soilHumidity <= soilThreshold;
-	const waterState = soilNeedsWater
-		? mt('status.soilSensorWater')
+	const soil = assessSoil(plant.sensors, currentReadings?.soilHumidity, prediction);
+	const waterState = soil.needsWater
+		? mt(soil.source === 'ai' ? 'status.aiSoilWater' : 'status.soilSensorWater')
 		: getActionStatus(plant.lastWatered, wateringIntervalDays, 'watering.never');
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState);
-	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/soil_needs_water`, soilNeedsWater ? 'ON' : 'OFF');
+	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/soil_needs_water`, soil.needsWater ? 'ON' : 'OFF');
+	// La % sulla scala della pianta, come entità a sé: è quella su cui ha senso
+	// costruire automazioni, non la grezza che si scalibra.
+	publishIfChanged(
+		`${TOPIC_PREFIX}/plant/${slug}/soil_humidity_ai`,
+		soil.normalized != null ? String(soil.normalized) : '',
+	);
 
 	// Fertilizing state
 	const fertState = getActionStatus(plant.lastFertilized, fertilizingIntervalDays, 'fertilizing.never');
@@ -453,8 +482,16 @@ function publishState(plant: Plant) {
 				soil_dry_point: prediction.calibration?.dryPoint ?? null,
 				soil_wet_point: prediction.calibration?.wetPoint ?? null,
 				soil_humidity_calibrated: prediction.normalizedSoilHumidity,
+				// Da quante irrigazioni registrate viene la scala e quando è stata
+				// ritarata l'ultima volta: 0 / null = sta ancora usando la soglia manuale.
+				soil_calibrated_from: prediction.calibration?.samples ?? 0,
+				soil_calibrated_at: prediction.calibration?.lastCalibratedAt ?? null,
 			}
 			: null,
+		// Lettura grezza del sensore e chi sta facendo scattare l'allerta ('ai' = scala
+		// calibrata, 'raw' = soglia manuale, 'none' = nessun sensore terreno).
+		soil_humidity_raw: soil.raw,
+		soil_alert_source: soil.source,
 	};
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/attributes`, JSON.stringify(attributes));
 }

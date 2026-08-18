@@ -79,6 +79,7 @@ export const en = {
 		daysAgo: '{days}d ago',
 		hoursAgo: '{hours}h ago',
 		soilSensorWater: 'Water — soil sensor',
+		aiSoilWater: 'Water — 0% on plant scale',
 		scheduleDue: 'Seasonal schedule due',
 	},
 	prediction: {
@@ -98,6 +99,11 @@ export const en = {
 		calibrationTitle: '% remapped to this plant\'s own scale',
 		calibrationDry: '0% = {value}% raw (where you usually water)',
 		calibrationWet: '100% = {value}% raw (right after watering)',
+		calibrationSamples: 'Recalibrated on the last {count} logged waterings',
+		calibrationAt: 'Last recalibrated: {date}',
+		calibrationPending: 'Not learned yet: starts from the manual threshold until you log a watering',
+		rawSecondary: 'Raw sensor reading — the alert comes from the % above',
+		thresholdUnused: 'no longer used for the alert',
 	},
 	seasons: {
 		spring: 'Spring',

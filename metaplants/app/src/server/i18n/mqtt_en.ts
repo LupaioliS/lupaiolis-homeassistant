@@ -9,6 +9,7 @@ export const mqtt_en = {
 		inHours: 'in {hours}h',
 		tomorrow: 'tomorrow',
 		soilSensorWater: 'needs watering (soil sensor)',
+		aiSoilWater: 'needs watering (0% on the plant scale)',
 	},
 	watering: {
 		never: 'never watered',
@@ -40,6 +41,7 @@ export const mqtt_en = {
 		health: 'Health',
 		watering_next: 'Next Watering',
 		soil_needs_water: 'Soil Sensor Watering Alert',
+		soil_humidity_ai: 'Soil Humidity (plant scale)',
 		fertilizing_next: 'Next Fertilizing',
 		repotting_last: 'Last Repotted',
 		pruning_last: 'Last Pruned',

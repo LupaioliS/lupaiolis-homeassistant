@@ -79,6 +79,7 @@ export const it = {
 		daysAgo: '{days}g fa',
 		hoursAgo: '{hours}h fa',
 		soilSensorWater: 'Innaffia — sensore terreno',
+		aiSoilWater: 'Innaffia — 0% scala pianta',
 		scheduleDue: 'Da programma stagionale',
 	},
 	prediction: {
@@ -98,6 +99,11 @@ export const it = {
 		calibrationTitle: '% ricalcolata dall\'IA sulla scala di questa pianta',
 		calibrationDry: '0% = {value}% grezzo (quando innaffi di solito)',
 		calibrationWet: '100% = {value}% grezzo (subito dopo l\'irrigazione)',
+		calibrationSamples: 'Ritarata sulle ultime {count} irrigazioni registrate',
+		calibrationAt: 'Ultima ritaratura: {date}',
+		calibrationPending: 'Non ancora imparata: parte dalla soglia manuale finché non registri un\'irrigazione',
+		rawSecondary: 'Lettura grezza del sensore — l\'allerta la decide la % qui sopra',
+		thresholdUnused: 'non più usata per l\'allerta',
 	},
 	seasons: {
 		spring: 'Primavera',

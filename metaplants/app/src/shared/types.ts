@@ -69,7 +69,10 @@ export interface SoilCalibration {
 	// % grezza raggiunta subito dopo l'irrigazione = 100%.
 	wetPoint: number;
 	// Numero di irrigazioni con dati sensore da cui è stata ricavata.
+	// 0 = nessuna irrigazione ancora osservata, la scala parte dalla soglia manuale.
 	samples: number;
+	// Ultima irrigazione registrata che ha aggiornato la scala. null finché non ce n'è.
+	lastCalibratedAt?: string | null;
 }
 
 export type PredictionConfidence = 'low' | 'medium' | 'high';

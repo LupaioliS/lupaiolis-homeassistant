@@ -9,6 +9,7 @@ export const mqtt_it = {
 		inHours: 'tra {hours}h',
 		tomorrow: 'domani',
 		soilSensorWater: 'da irrigare (sensore terreno)',
+		aiSoilWater: 'da irrigare (0% sulla scala della pianta)',
 	},
 	watering: {
 		never: 'mai irrigata',
@@ -40,6 +41,7 @@ export const mqtt_it = {
 		health: 'Salute',
 		watering_next: 'Prossima Irrigazione',
 		soil_needs_water: 'Allerta Irrigazione Sensore Terreno',
+		soil_humidity_ai: 'Umidità Terreno (scala pianta)',
 		fertilizing_next: 'Prossima Fertilizzazione',
 		repotting_last: 'Ultimo Rinvaso',
 		pruning_last: 'Ultima Potatura',

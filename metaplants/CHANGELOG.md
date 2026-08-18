@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.10.3
+
+The watering alert now fires on the **calibrated** soil percentage instead of the raw one. A capacitive probe that read 28% on dry soil in spring reads 36% a month later; the threshold you typed once doesn't move with it, so the alert either stops arriving or never stops. The learned scale does move — it is re-derived from your recent waterings — so that is what decides now: 0% on it means "you are at the level you normally water at", whatever raw number corresponds to it today.
+
+- `soil_needs_water`, the watering pill, the "needs attention" banner and the MQTT watering state all switch to the calibrated percentage hitting 0%. The manual threshold is still the bootstrap — until the first watering has been logged with the sensor watching, the scale starts from it and the alert fires exactly where it did before — but from the first logged watering onwards it no longer drives anything, and the card says so when you tap the raw reading
+- The calibrated percentage is published as its own entity, `metaplants/plant/<slug>/soil_humidity_ai` (device class `humidity`). It's the one worth automating on: unlike the raw reading, it means the same thing next month. The raw value and which of the two raised the alert are in the attributes as `soil_humidity_raw` and `soil_alert_source`
+- The scale now moves **only** on logged waterings — the "water" button (app, Home Assistant, or a manually added action) or a confirmed "did you water it?" prompt. This reverts the part of 1.10.2 that also let the 100% reference rise on its own whenever the open cycle read higher. That was reasonable while the calibration only affected a displayed number; it isn't now that it raises the alert, because an unconfirmed jump — or a sensor drifting upwards — would silently move the point at which your plants ask for water
+- Card layout follows: the 🧠 percentage comes first with the dry-to-wet tint, the raw one sits beside it in grey. Its details now also say how many waterings the scale comes from and when it last moved
+
+The consequence of calibrating only on confirmations: water a plant and dismiss the prompt, and the calibrated reading stays at 0% and keeps asking until a watering is logged. That's what the prompt is for, and it still fires on a 10-point rise. Nothing is persisted, so the new behavior applies as soon as the add-on restarts; plants without a logged watering yet behave exactly as they did in 1.10.2.
+
 ## 1.10.2
 
 Soil moisture sensors drift. A sensor that peaked at 68% right after watering can peak at 48% a few weeks later for the same soak, and until now the learned scale kept the old value alive: the 100% reference was the 75th percentile of *every* watering still in the 14-day history, so a genuinely decalibrated sensor read as a half-empty plant right after being watered. This release makes the calibration describe the sensor as it is now.

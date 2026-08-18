@@ -106,13 +106,27 @@ Leave the entity blank and MetaPlants falls back to the seasonal time-based
 schedule like before.
 
 Once configured, the soil reading **wins over the calendar**: even if the
-plant isn't technically due for water yet, dropping below the threshold marks
-it as needing water right away, and the watering pill on the card switches to
-a dedicated "soil sensor" message instead of the usual "in N days". The pill
-itself also fades smoothly between a dry (tan) and wet (blue) tint as the
-reading approaches the threshold, so you get a sense of how close it is
-without staring at the raw percentage. A dry plant also surfaces in the
-"needs attention" banner just like an overdue one.
+plant isn't technically due for water yet, dry soil marks it as needing water
+right away, the watering pill on the card switches to a dedicated message
+instead of the usual "in N days", and the plant surfaces in the "needs
+attention" banner just like an overdue one.
+
+**What counts as "dry" is the recalibrated percentage, not the raw one.**
+Capacitive probes drift: the same dry soil that read 28% in spring can read
+36% a month later, and a threshold you typed once ages along with it — the
+alert stops arriving, or never stops. So the trigger is the plant's own scale
+(see [Watering Estimate](#watering-estimate)), where **0% means "you're at the
+level you normally water at"**, whatever raw number happens to correspond to
+it today. That scale is re-derived from your last waterings, so it follows the
+sensor as it drifts instead of aging with it.
+
+The manual threshold is still what gets things going: until the first watering
+has been logged with the sensor watching, the scale starts from it and the
+alert fires exactly where it used to. From the first logged watering onwards
+the learned scale takes over and the threshold stops driving the alert (the
+card says so if you tap the raw reading). Both percentages stay visible on the
+card — the calibrated one first, with the dry (tan) to wet (blue) tint, and the
+raw one next to it in grey.
 
 Readings are polled from Home Assistant every 20 seconds by default (plus right
 after you save the plant), the same mechanism used for temperature/humidity —
@@ -147,10 +161,20 @@ It learns two things from the soil sensor plus your watering history:
   this plant's "empty", not 30% of anything meaningful. MetaPlants takes the
   0% point from the driest reading in the hours before each watering, and the
   100% point from the peak actually reached just after it, then shows the
-  recalibrated value next to the raw one on the card (🧠 pill). Tap it — or
-  hover it with a mouse — to see both reference points. "Full" is treated as an extreme rather than an
-  average — a generous soak counts for more than a top-up — while still
-  ignoring a single freak reading once there are several cycles to compare.
+  recalibrated value on the card (🧠 pill) with the raw one beside it. Tap it —
+  or hover it with a mouse — to see both reference points, how many waterings
+  they come from and when the scale last moved. "Full" is treated as an extreme
+  rather than an average — a generous soak counts for more than a top-up — while
+  still ignoring a single freak reading once there are several cycles to compare.
+
+  The scale only moves on **logged waterings**: the "water" button (in the app,
+  from the Home Assistant button entity, or a manually added action) or a
+  confirmed "did you water it?" prompt. A detected jump you dismiss, or a
+  sensor wandering upwards on its own, changes nothing. That's deliberate now
+  that the scale is what raises the alert — it should only be redrawn around
+  moments where you know water actually went in. The flip side: water without
+  ever confirming it and the calibrated reading stays at 0% and keeps asking,
+  which is what the prompt is there to catch.
 - **How fast it dries.** A linear fit over the readings since the last watering
   gives a dry-down rate in percentage points per day, which combined with the
   0% point yields the time left. The average interval between past waterings in
@@ -166,8 +190,9 @@ always one tap (or hover) away on the pill itself.
 
 The estimate is also published on MQTT inside the plant attributes, under
 `prediction` (`next_watering`, `days_left`, `confidence`, `dry_rate_per_day`,
-`soil_dry_point`, `soil_wet_point`, `soil_humidity_calibrated`), so automations
-can use it directly.
+`soil_dry_point`, `soil_wet_point`, `soil_humidity_calibrated`,
+`soil_calibrated_from`, `soil_calibrated_at`), so automations can use it
+directly.
 
 ### What this means on MQTT
 
@@ -176,16 +201,24 @@ can build automations on it directly, separate from the time-based watering
 sensor:
 
 - A binary sensor is published per plant: `metaplants/plant/<slug>/soil_needs_water`
-  (`ON` when the reading is at or below the threshold, `OFF` otherwise), with
-  discovery config under `{discoveryPrefix}/binary_sensor/<device>/soil_needs_water/config`.
-  It shows up in Home Assistant as a "problem" sensor, so it lights up red
-  when something needs attention.
+  (`ON` when the soil is dry, `OFF` otherwise), with discovery config under
+  `{discoveryPrefix}/binary_sensor/<device>/soil_needs_water/config`. It shows
+  up in Home Assistant as a "problem" sensor, so it lights up red when
+  something needs attention. Same rule as the card: it follows the calibrated
+  percentage hitting 0%, falling back to the manual threshold only until the
+  scale has been learned.
+- The calibrated percentage has its own sensor,
+  `metaplants/plant/<slug>/soil_humidity_ai` (device class `humidity`, `%`).
+  This is the one worth building automations on: it means the same thing next
+  month as it does today, which the raw reading doesn't.
 - The regular watering text sensor (`metaplants/plant/<slug>/watering`) also
-  reflects the override — while the soil sensor says dry, it reports a
-  soil-specific message instead of the usual day count.
-- The raw soil percentage itself is **not** published to MQTT; it's a live
+  reflects the override — while the soil says dry, it reports a soil-specific
+  message instead of the usual day count.
+- The raw soil percentage is **not** published as its own entity; it's a live
   Home Assistant value already, so MetaPlants just reads it rather than
-  re-publishing a copy.
+  re-publishing a copy. It's in the plant attributes as `soil_humidity_raw`
+  alongside `soil_alert_source` (`ai` / `raw` / `none`), for when you need to
+  see which of the two raised the alert.
 - Like the other plant sensors, MetaPlants skips republishing a topic if the
   value hasn't actually changed since the last publish, so you won't see the
   retained message churn on every hourly refresh — just real state changes.
