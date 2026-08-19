@@ -1,4 +1,4 @@
-import type { PlantSensors, WateringPrediction } from './types';
+import type { PlantSensors, SensorSample, WateringPrediction } from './types';
 
 /**
  * Chi decide che il terreno è secco, in un posto solo.
@@ -17,6 +17,49 @@ import type { PlantSensors, WateringPrediction } from './types';
 // Livello della scala calibrata sotto il quale la pianta va innaffiata. È 0 per
 // definizione: lo zero della scala È il punto in cui di solito innaffi.
 export const AI_DRY_LEVEL = 0;
+
+/** Massimo osservato per il campione: il picco se registrato, altrimenti il valore. */
+export function samplePeak(sample: SensorSample): number {
+	return sample.peak ?? sample.v;
+}
+
+/** Minimo osservato per il campione: la conca se registrata, altrimenti il valore. */
+export function sampleTrough(sample: SensorSample): number {
+	return sample.trough ?? sample.v;
+}
+
+// Finestra su cui si cerca il minimo con cui confrontare una lettura per decidere
+// se è una risalita. Stesso valore usato dal rilevamento in server/sensors.ts.
+export const RISE_WINDOW_MS = 45 * 60 * 1000;
+// Risalita, in punti percentuali, che fa sospettare un'irrigazione.
+export const DEFAULT_RISE_DELTA = 10;
+// Due risalite più vicine di così sono lo stesso evento (il terreno resta bagnato).
+const RISE_MERGE_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Gli istanti in cui il terreno è risalito di colpo, cioè quando è arrivata acqua.
+ *
+ * È la stessa forma di curva che `sensors.ts` usa per chiedere "hai innaffiato?",
+ * ma qui applicata a posteriori su una serie: serve alla calibrazione per sapere
+ * DOVE è arrivata l'acqua invece di fidarsi dell'orario in cui hai premuto il
+ * pulsante, e al grafico per marcare le risalite che nessuno ha confermato.
+ *
+ * Restituisce gli indici nella serie ricevuta, in ordine cronologico.
+ */
+export function findRises(samples: SensorSample[], delta = DEFAULT_RISE_DELTA): number[] {
+	const rises: number[] = [];
+	for (let i = 1; i < samples.length; i++) {
+		let baseline = Infinity;
+		for (let j = i - 1; j >= 0 && samples[i].t - samples[j].t <= RISE_WINDOW_MS; j--) {
+			baseline = Math.min(baseline, sampleTrough(samples[j]));
+		}
+		if (!Number.isFinite(baseline)) continue;
+		if (samplePeak(samples[i]) - baseline < delta) continue;
+		if (rises.length > 0 && samples[i].t - samples[rises[rises.length - 1]].t < RISE_MERGE_MS) continue;
+		rises.push(i);
+	}
+	return rises;
+}
 
 export type SoilSignalSource = 'ai' | 'raw' | 'none';
 

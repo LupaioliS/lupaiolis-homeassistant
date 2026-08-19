@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { SensorSample } from '../shared/types';
+import { samplePeak, sampleTrough } from '../shared/soil';
 
 /**
  * Storico delle letture dei sensori.
@@ -38,16 +39,20 @@ const SERIES_CONFIG: Record<SeriesKey, SeriesConfig> = {
 // La forma del campione è condivisa col client, che ne disegna la curva sulla scheda.
 export type Sample = SensorSample;
 
-/** Massimo osservato per il campione: il picco se registrato, altrimenti il valore. */
-export function samplePeak(sample: Sample): number {
-	return sample.peak ?? sample.v;
-}
+// I due estremi del bucket vivono con le altre regole del terreno (shared/soil.ts):
+// li usano storico, previsione e grafico, e devono dire la stessa cosa a tutti.
+export { samplePeak, sampleTrough } from '../shared/soil';
 
 type PlantSeries = Record<SeriesKey, Sample[]>;
 
-// Su disco i campioni sono [secondi, valore] — o [secondi, valore, picco] quando
-// dentro il bucket è stato visto un valore più alto. JSON molto più compatto.
-type StoredSample = [number, number] | [number, number, number];
+// Su disco i campioni sono [secondi, valore], con in coda gli estremi del bucket
+// quando ci sono: [.., picco] e [.., picco, conca] — con picco a `null` se c'è solo
+// la conca. JSON molto più compatto, e le versioni precedenti leggono comunque le
+// prime due (o tre) posizioni ignorando la coda che non conoscono.
+type StoredSample =
+	| [number, number]
+	| [number, number, number | null]
+	| [number, number, number | null, number | null];
 interface StoredFile {
 	version: number;
 	plants: Record<string, Partial<Record<SeriesKey, StoredSample[]>>>;
@@ -83,7 +88,12 @@ export function loadHistory(): void {
 				if (!Array.isArray(stored)) continue;
 				target[key] = stored
 					.filter((s) => Array.isArray(s) && s.length >= 2)
-					.map(([t, v, peak]) => (peak != null ? { t: t * 1000, v, peak } : { t: t * 1000, v }));
+					.map(([t, v, peak, trough]) => {
+						const sample: Sample = { t: t * 1000, v };
+						if (peak != null) sample.peak = peak;
+						if (trough != null) sample.trough = trough;
+						return sample;
+					});
 			}
 		}
 		console.log(`[History] Loaded readings for ${history.size} plant(s)`);
@@ -101,11 +111,14 @@ export function persistHistory(): void {
 			const entry: Partial<Record<SeriesKey, StoredSample[]>> = {};
 			for (const key of Object.keys(SERIES_CONFIG) as SeriesKey[]) {
 				if (series[key].length === 0) continue;
-				entry[key] = series[key].map((s) => (
-					s.peak != null
-						? [Math.round(s.t / 1000), s.v, s.peak]
-						: [Math.round(s.t / 1000), s.v]
-				) as StoredSample);
+				// Si scrive la forma più corta che conserva il dato: la coda compare
+				// solo quando dentro il bucket è stato visto qualcosa di diverso da `v`.
+				entry[key] = series[key].map((s) => {
+					const t = Math.round(s.t / 1000);
+					if (s.trough != null) return [t, s.v, s.peak ?? null, s.trough] as StoredSample;
+					if (s.peak != null) return [t, s.v, s.peak] as StoredSample;
+					return [t, s.v] as StoredSample;
+				});
 			}
 			if (Object.keys(entry).length > 0) out.plants[plantId] = entry;
 		}
@@ -142,14 +155,19 @@ export function recordSample(plantId: string, key: SeriesKey, value: number, at:
 	const last = series[series.length - 1];
 
 	if (last && Math.floor(last.t / bucketMs) === Math.floor(at / bucketMs)) {
-		// Stesso bucket: per la curva di asciugatura conta l'ultima lettura, ma il
-		// massimo va conservato a parte o i picchi brevi (l'irrigazione!) sparirebbero.
+		// Stesso bucket: per la curva di asciugatura conta l'ultima lettura, ma i due
+		// estremi vanno conservati a parte o gli eventi brevi sparirebbero dentro il
+		// quarto d'ora. Il picco serve al 100% della scala; la conca serve allo 0%, ed
+		// è quella che l'irrigazione sovrascrive proprio perché arriva subito dopo.
 		const highest = Math.max(samplePeak(last), rounded);
-		if (last.v === rounded && last.t === at && samplePeak(last) === highest) return;
+		const lowest = Math.min(sampleTrough(last), rounded);
+		if (last.v === rounded && last.t === at && samplePeak(last) === highest && sampleTrough(last) === lowest) return;
 		last.t = at;
 		last.v = rounded;
 		if (highest > rounded) last.peak = highest;
 		else delete last.peak;
+		if (lowest < rounded) last.trough = lowest;
+		else delete last.trough;
 	} else {
 		series.push({ t: at, v: rounded });
 		if (series.length > maxSamples) series.splice(0, series.length - maxSamples);

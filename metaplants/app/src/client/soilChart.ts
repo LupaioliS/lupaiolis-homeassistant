@@ -1,4 +1,5 @@
 import type { SensorSample, SoilCalibration } from '../shared/types';
+import { findRises, samplePeak } from '../shared/soil';
 
 /**
  * La matematica del grafico dell'umidità, separata dal componente.
@@ -14,17 +15,13 @@ export const DAY_MS = 24 * HOUR_MS;
 // Oltre questo buco fra due campioni la linea si spezza invece di attraversare ore
 // di dati che non esistono: un sensore staccato deve VEDERSI come staccato.
 const GAP_MS = 2 * HOUR_MS;
-// Stessi numeri del rilevamento lato server (sensors.ts), così i marker "?" sono
-// esattamente i salti per cui l'add-on avrebbe chiesto conferma.
-const JUMP_WINDOW_MS = 45 * 60 * 1000;
-export const DEFAULT_JUMP_DELTA = 10;
 // Un'irrigazione viene registrata anche parecchio dopo il fatto (stessa finestra di
 // predict.ts): un salto entro queste ore da un'azione non è "non confermato".
 const JUMP_MATCH_MS = 12 * HOUR_MS;
 // Dislivello minimo fra valore e picco del bucket perché valga la pena disegnarlo.
 const PEAK_MARK_MIN = 3;
 
-export const peakOf = (s: SensorSample) => (s.peak != null && s.peak > s.v ? s.peak : s.v);
+export const peakOf = samplePeak;
 
 export interface ChartBox {
 	width: number;
@@ -107,21 +104,10 @@ export function buildSoilChart(input: ChartInput): ChartGeometry | null {
 		.filter((seg) => seg.length > 1)
 		.map((seg) => `${path(seg)}L${x(seg[seg.length - 1].t).toFixed(1)},${base}L${x(seg[0].t).toFixed(1)},${base}Z`);
 
-	// Risalite marcate rispetto al minimo dei 45 minuti precedenti — la stessa regola
-	// del server. Quelle senza un'irrigazione registrata attorno sono acqua che il
-	// modello non ha potuto usare: è lì che si spiegano le tarature strane.
-	const delta = jumpDelta ?? DEFAULT_JUMP_DELTA;
-	const jumps: number[] = [];
-	for (let i = 0; i < visible.length; i++) {
-		let baseline = Infinity;
-		for (let j = i - 1; j >= 0 && visible[i].t - visible[j].t <= JUMP_WINDOW_MS; j--) {
-			baseline = Math.min(baseline, visible[j].v);
-		}
-		if (!Number.isFinite(baseline)) continue;
-		if (peakOf(visible[i]) - baseline < delta) continue;
-		if (jumps.length > 0 && visible[i].t - jumps[jumps.length - 1] < JUMP_MATCH_MS) continue;
-		jumps.push(visible[i].t);
-	}
+	// Risalite: stessa identica regola del server (shared/soil.ts), non una copia —
+	// i marker "?" devono essere esattamente i salti per cui l'add-on avrebbe chiesto
+	// conferma, e su cui la calibrazione si ancora.
+	const jumps = findRises(visible, jumpDelta).map((i) => visible[i].t);
 
 	const dayStart = new Date(from);
 	dayStart.setHours(0, 0, 0, 0);

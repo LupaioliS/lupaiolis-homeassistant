@@ -1,5 +1,5 @@
 name: "MetaPlants"
-version: "1.11.0"
+version: "1.11.1"
 slug: "metaplants"
 description: "Home Assistant add-on to manage household plants: watering, fertilizing, repotting, pruning, and health issue history"
 arch:

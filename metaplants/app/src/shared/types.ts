@@ -75,6 +75,16 @@ export interface SensorSample {
 	 * fosse molto più asciutto di quanto sia davvero.
 	 */
 	peak?: number;
+	/**
+	 * Valore minimo osservato dentro il bucket, presente solo se inferiore a `v`.
+	 *
+	 * Speculare a `peak`, e per un motivo speculare: il punto SECCO della scala è
+	 * l'ultima lettura prima che l'acqua arrivi, e quella lettura cade spesso nello
+	 * stesso quarto d'ora della risalita che la segue. Tenendo solo l'ultimo valore
+	 * del bucket veniva sovrascritta dallo schizzo post-irrigazione, e il modello
+	 * imparava come "secco" un terreno già bagnato.
+	 */
+	trough?: number;
 }
 
 /** Cosa ha visto il sensore attorno a una singola irrigazione registrata. */

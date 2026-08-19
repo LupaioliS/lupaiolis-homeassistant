@@ -178,9 +178,13 @@ plant per poll.
 It learns two things from the soil sensor plus your watering history:
 
 - **The plant's own scale.** If you consistently water at 30% raw, then 30% is
-  this plant's "empty", not 30% of anything meaningful. MetaPlants takes the
-  0% point from the driest reading in the hours before each watering, and the
-  100% point from the peak actually reached just after it, then shows the
+  this plant's "empty", not 30% of anything meaningful. Both reference points are
+  anchored to the **rise in the curve** — the moment the water actually reached
+  the soil — not to the moment you pressed the button: the 0% point is the lowest
+  reading before that rise, the 100% point the peak from there on. So logging the
+  watering ten minutes or ten hours late doesn't change what gets learned, and if
+  there isn't at least half an hour of readings before the rise, that watering
+  contributes no 0% point at all rather than a wrong one. MetaPlants then shows the
   recalibrated value on the card (🧠 pill) with the raw one beside it. Tap it —
   or hover it with a mouse — to see both reference points *and the individual
   waterings they're built from*: date, the low seen before each one, the peak

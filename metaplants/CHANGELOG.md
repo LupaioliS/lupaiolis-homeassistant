@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.11.1
+
+Fix the 0% point of the learned scale being taken from a reading that was already wet. Water a plant at 38.7%, watch the sensor shoot up to 53%, press "water" — and the scale would record 53% as "this is where the plant gets watered", which is the one number it must never get wrong now that it raises the alert.
+
+Two independent causes, both fixed:
+
+- **History buckets kept the maximum of each 15 minutes but not the minimum.** `peak` was added in 1.10.1 so the brief post-watering spike would survive its bucket; the mirror case was never covered, so the last dry reading before watering — which lands in the same quarter of an hour as the rise that follows it — was simply overwritten. Samples now carry `trough` alongside `peak`, and the dry point reads from it. The stored format grows a fourth optional field; existing `history.json` files load unchanged, and older versions of the add-on can still read files written by this one
+- **The dry point was searched relative to when you pressed the button, not to when the water arrived.** It's now anchored to the rise in the curve itself: within the window around the logged watering, the add-on finds where the soil jumped and takes the low from strictly before that point, the peak from there onwards. Pressing "water" ten minutes or ten hours after the fact no longer changes what gets learned
+
+Added with them, a refusal rule: if there isn't at least half an hour of readings *before* the rise, that watering no longer contributes a dry point at all, instead of contributing a wrong one. A plant whose sensor was only just configured now keeps the manual threshold until it has seen a real dry-down — no calibration beats a calibration invented from the splash.
+
+The rise detection is now one shared implementation (`src/shared/soil.ts`) used by the estimate, the chart's `?` markers and the prompt, instead of three copies that could disagree about what counts as a watering.
+
+Nothing is persisted from the model, so the corrected scale applies as soon as the add-on restarts — but troughs can only be recorded from now on: cycles already in `history.json` keep whatever their buckets saved. Affected plants recalibrate on their next two waterings.
+
 ## 1.11.0
 
 1.10.3 made the calibrated percentage the thing that raises the watering alert. This one makes that percentage inspectable: the two numbers behind it were previously something you either believed or didn't, with nothing to check them against.

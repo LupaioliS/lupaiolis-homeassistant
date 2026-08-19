@@ -1,6 +1,7 @@
 import type { Plant, PlantAction, CalibrationObservation, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
 import { DAY_MS, HOUR_MS, getSeasonForDate, getCurrentSeason } from '../shared/schedule';
-import { getSamples, samplePeak, type Sample } from './history';
+import { getSamples, type Sample } from './history';
+import { findRises, samplePeak, sampleTrough } from '../shared/soil';
 
 /**
  * Stima "fatta in casa" di quando la pianta andrà innaffiata.
@@ -28,11 +29,16 @@ const SATURATION_MS = 2 * HOUR_MS;
 const WET_PEAK_WINDOW_MS = 4 * HOUR_MS;
 // L'azione può essere registrata parecchio dopo l'irrigazione vera: il prompt "hai
 // innaffiato?" arriva al poll successivo e la conferma può arrivare a fine giornata.
-// Dentro questa finestra PRIMA di w si cercano sia il minimo (la conca asciutta, che
-// altrimenti diventerebbe una lettura già bagnata) sia il picco.
+// Dentro questa finestra prima di w si cerca la risalita, cioè il momento in cui
+// l'acqua è arrivata davvero; l'orario del pulsante serve solo a trovare la finestra.
 const ACTION_LAG_MS = 12 * HOUR_MS;
 // Sotto questa escursione fra asciutto e bagnato la calibrazione non è credibile.
 const MIN_CALIBRATION_SPAN = 5;
+// Quanti campioni, e su che arco, servono PRIMA della risalita perché il punto secco
+// di quel ciclo valga qualcosa. Con meno di così la finestra contiene solo letture
+// già bagnate e il "secco" appreso sarebbe l'irrigazione stessa.
+const MIN_DRY_SAMPLES = 2;
+const MIN_DRY_SPAN_MS = 30 * 60 * 1000;
 // Quante irrigazioni recenti descrivono la scala ATTUALE del sensore. Oltre questa
 // finestra i picchi vecchi tengono in vita una taratura che il sensore non regge più:
 // i capacitivi derivano, e un massimo di due settimane fa non dice più a quanto arriva
@@ -155,21 +161,34 @@ interface CycleObservation {
  * Un salto rilevato e non confermato non arriva fin qui, ed è voluto: la taratura
  * si muove solo quando sai per certo che c'è stata acqua.
  */
-function observeCycles(soil: Sample[], waterings: number[]): CycleObservation[] {
+function observeCycles(soil: Sample[], waterings: number[], riseDelta?: number): CycleObservation[] {
 	const observations: CycleObservation[] = [];
 	for (const w of waterings) {
 		// L'istante registrato non coincide con l'irrigazione vera: col prompt "hai
 		// innaffiato?" l'azione viene salvata quando il sensore è GIÀ salito, e la
-		// conferma può arrivare ore dopo. Perciò si guarda indietro fino a ACTION_LAG_MS:
-		// il secco è il minimo di quella finestra (non l'ultima lettura, che potrebbe
-		// essere già bagnata) e il picco si cerca anche parecchio prima di w.
-		const before = soil.filter((s) => s.t <= w && s.t >= w - ACTION_LAG_MS);
+		// conferma può arrivare ore dopo. Perciò si guarda dentro una finestra ampia
+		// attorno a w invece di fidarsi dell'orario esatto.
 		const around = soil.filter((s) => s.t >= w - ACTION_LAG_MS && s.t <= w + WET_PEAK_WINDOW_MS);
-		if (before.length === 0 && around.length === 0) continue;
+		if (around.length === 0) continue;
+
+		// Dentro la finestra si cerca DOVE è arrivata l'acqua, cioè la risalita nella
+		// curva: è l'unico riferimento che non dipende da quando hai premuto il
+		// pulsante. Il secco sta prima di quel punto, il bagnato da lì in poi.
+		const rise = findRises(around, riseDelta)[0];
+		const beforeRise = rise != null ? around.slice(0, rise) : around.filter((s) => s.t <= w);
+		const fromRise = rise != null ? around.slice(rise) : around;
+
+		// Senza abbastanza dati PRIMA della risalita non si sa a che percentuale fosse
+		// il terreno: le letture rimaste sono già bagnate. Meglio nessuna osservazione
+		// che insegnare un punto secco preso dallo schizzo dell'irrigazione stessa —
+		// era esattamente così che una pianta innaffiata al 38% imparava "secco = 53%".
+		const spanMs = beforeRise.length > 1 ? beforeRise[beforeRise.length - 1].t - beforeRise[0].t : 0;
+		const dryUsable = beforeRise.length >= MIN_DRY_SAMPLES && spanMs >= MIN_DRY_SPAN_MS;
+
 		observations.push({
 			at: w,
-			dry: before.length > 0 ? Math.min(...before.map((s) => s.v)) : null,
-			wet: around.length > 0 ? Math.max(...around.map(samplePeak)) : null,
+			dry: dryUsable ? Math.min(...beforeRise.map(sampleTrough)) : null,
+			wet: Math.max(...fromRise.map(samplePeak)),
 		});
 	}
 	return observations;
@@ -202,10 +221,10 @@ function resolveWetPoint(wetValues: number[]): number {
  * Ricava la scala reale del sensore: a che % innaffi (0% utile) e a che %
  * arriva il terreno appena bagnato (100%).
  */
-function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number): SoilCalibration | null {
+function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number, riseDelta?: number): SoilCalibration | null {
 	// Solo le ultime irrigazioni osservate: la scala deve descrivere il sensore com'è
 	// adesso, non la media di com'era nelle ultime due settimane.
-	const recent = observeCycles(soil, waterings).slice(-CALIBRATION_CYCLES);
+	const recent = observeCycles(soil, waterings, riseDelta).slice(-CALIBRATION_CYCLES);
 	const dryValues = recent.map((o) => o.dry).filter((v): v is number => v != null);
 	const wetValues = recent.map((o) => o.wet).filter((v): v is number => v != null);
 	// Esposte così com'è: il punto secco è la mediana dei minimi, quindi un ciclo
@@ -307,7 +326,7 @@ export function predictWatering(
 	const waterings = waterTimestamps(actions);
 	const cycleInfo = averageCycle(waterings);
 
-	const calibration = calibrate(soil, waterings, plant.sensors?.soilHumidityThreshold);
+	const calibration = calibrate(soil, waterings, plant.sensors?.soilHumidityThreshold, plant.sensors?.soilJumpDelta);
 	const dryRate = soil.length > 0 ? estimateDryRate(soil, waterings) : null;
 
 	// Stima dal sensore: quanto manca a scendere fino al livello a cui innaffi.
