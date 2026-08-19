@@ -4,13 +4,15 @@ import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import type { SeasonalSchedule, PlantSensors } from '../../shared/types';
-import { getCurrentSeason, getIntervalForSeason } from '../../shared/schedule';
+import { DAY_MS, getCurrentSeason, getIntervalForSeason } from '../../shared/schedule';
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
 import { getAllReadings, getReadings, refreshPlantReadings, refreshPrediction } from '../sensors';
 import { listSensorEntities } from '../homeassistant';
-import { dropPlantHistory } from '../history';
+import { dropPlantHistory, getSamples, type SeriesKey } from '../history';
+
+const SERIES_KEYS: SeriesKey[] = ['soil', 'temp', 'hum'];
 
 const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/jpeg': '.jpg',
@@ -231,6 +233,25 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	fastify.get('/readings', async () => getAllReadings());
+
+	// Storico letture di una pianta, per il grafico sulla scheda. Finora la curva
+	// esisteva solo lato server (history.json): il client vedeva un numero e doveva
+	// fidarsi. Si carica solo quando il grafico viene aperto, non ad ogni scheda.
+	fastify.get<{ Params: { id: string }; Querystring: { days?: string; series?: string } }>(
+		'/plants/:id/history',
+		async (request, reply) => {
+			const plant = store.getPlant(request.params.id);
+			if (!plant) return reply.status(404).send({ error: 'Plant not found' });
+
+			const series = (request.query.series ?? 'soil') as SeriesKey;
+			if (!SERIES_KEYS.includes(series)) return reply.status(400).send({ error: 'Unknown series' });
+
+			const requested = Number(request.query.days);
+			const days = Math.min(30, Math.max(1, Number.isFinite(requested) ? requested : 14));
+			const from = Date.now() - days * DAY_MS;
+			return { series, from, samples: getSamples(plant.id, series, from) };
+		},
+	);
 
 	// Entità di Home Assistant proponibili come sensori (etichetta "metaplants",
 	// con fallback su tutti i sensori compatibili se l'etichetta non esiste).

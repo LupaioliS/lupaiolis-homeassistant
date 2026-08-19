@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage, PlantReadings, HaEntityList } from '../shared/types';
+import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage, PlantReadings, HaEntityList, SensorSample } from '../shared/types';
 import { BASE_PATH } from './basePath';
 import { prepareImageForUpload } from './imageResize';
 
@@ -65,6 +65,12 @@ export const api = {
 	getReadings: () => request<Record<string, PlantReadings>>('/readings'),
 	getHaEntities: (refresh = false) =>
 		request<HaEntityList>(`/ha/entities${refresh ? '?refresh=1' : ''}`),
+	// Storico letture per il grafico: richiesto solo quando il grafico viene aperto,
+	// altrimenti sarebbe una richiesta per scheda ad ogni caricamento.
+	getHistory: (plantId: string, days = 14, series: 'soil' | 'temp' | 'hum' = 'soil') =>
+		request<{ series: string; from: number; samples: SensorSample[] }>(
+			`/plants/${encodeURIComponent(plantId)}/history?days=${days}&series=${series}`,
+		),
 	acknowledgeSoilJump: (plantId: string) =>
 		request<{ success: boolean }>(`/plants/${encodeURIComponent(plantId)}/ack-soil-jump`, { method: 'POST' }),
 };

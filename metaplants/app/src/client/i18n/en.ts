@@ -106,6 +106,18 @@ export const en = {
 		rawSecondary: 'Raw sensor reading — the alert comes from the % above',
 		thresholdUnused: 'no longer used for the alert',
 	},
+	chart: {
+		title: 'Soil humidity over time',
+		days: '{days}d',
+		loading: 'Loading history…',
+		empty: 'No readings in this period yet',
+		error: 'History unavailable',
+		watered: 'Logged watering',
+		unconfirmed: 'Never-confirmed rise',
+		dryLine: '0% (dry)',
+		wetLine: '100% (full)',
+		thresholdLine: 'manual threshold',
+	},
 	seasons: {
 		spring: 'Spring',
 		summer: 'Summer',

@@ -106,6 +106,18 @@ export const it = {
 		rawSecondary: 'Lettura grezza del sensore — l\'allerta la decide la % qui sopra',
 		thresholdUnused: 'non più usata per l\'allerta',
 	},
+	chart: {
+		title: 'Andamento umidità terreno',
+		days: '{days}g',
+		loading: 'Carico lo storico…',
+		empty: 'Ancora nessuna lettura in questo periodo',
+		error: 'Storico non disponibile',
+		watered: 'Irrigazione registrata',
+		unconfirmed: 'Risalita mai confermata',
+		dryLine: '0% (secco)',
+		wetLine: '100% (pieno)',
+		thresholdLine: 'soglia manuale',
+	},
 	seasons: {
 		spring: 'Primavera',
 		summer: 'Estate',

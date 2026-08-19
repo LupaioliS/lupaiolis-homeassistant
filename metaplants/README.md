@@ -133,6 +133,26 @@ after you save the plant), the same mechanism used for temperature/humidity —
 see [Environmental Readings](#environmental-readings) below for the polling
 details and caveats.
 
+### The soil curve
+
+The 📈 button next to the soil percentages opens a chart of the raw reading over
+the last 3, 7 or 14 days — the same history the estimate is built from, which
+until now only the server could see. Drawn on top of it:
+
+- the learned **0%** and **100%** points as dashed lines (or the manual
+  threshold, while there's no learned scale yet)
+- 💧 at every **logged watering** — the moments where the scale was recalibrated
+- a dashed **`?`** at every marked rise that was never confirmed: water the
+  model couldn't learn from. If the calibration looks wrong, this is usually why
+- brief peaks within a 15-minute bucket as small ticks above the line — that's
+  where the 100% point comes from
+
+Gaps break the line rather than being bridged across, so a sensor that dropped
+offline looks offline instead of looking like a smooth reading. The history is
+only fetched when you open the chart, so it costs nothing on plants you don't
+open. It's served by `GET /api/plants/<id>/history?days=<n>&series=soil|temp|hum`
+(temperature and ambient humidity keep ~2 days, soil ~14).
+
 ### "Did you water it?" prompt
 
 When the soil reading jumps up sharply, someone probably watered the plant

@@ -10,6 +10,7 @@ import { ActionDialog, type ActionDialogType } from './ActionDialog';
 import { WaterSplashEffect, DROPLET_FALL_DURATION_S, DROPLET_STAGGER_S, DROPLET_ARRIVAL_FRACTION, type SplashTarget } from './WaterSplashEffect';
 import { WaterFillOverlay, FILL_DURATION_MS, type FillTarget } from './WaterFillOverlay';
 import { FertilizeSproutEffect, SPROUT_DURATION_MS } from './FertilizeSproutEffect';
+import { SoilHistoryChart } from './SoilHistoryChart';
 
 interface PlantCardProps {
 	plant: Plant;
@@ -262,6 +263,9 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 	const [localActions, setLocalActions] = useState<PlantAction[]>([]);
 	// Pillola di cui è aperto il pannello dei dettagli (equivalente al tooltip, ma toccabile).
 	const [openInfo, setOpenInfo] = useState<string | null>(null);
+	// Il grafico si monta (e quindi scarica lo storico) solo quando viene aperto:
+	// altrimenti sarebbe una richiesta per scheda ad ogni caricamento della pagina.
+	const [showChart, setShowChart] = useState(false);
 	const cardRef = useRef<HTMLDivElement>(null);
 	const waterPillRef = useRef<HTMLSpanElement>(null);
 	const waterButtonRef = useRef<HTMLDivElement>(null);
@@ -334,6 +338,16 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 	const allActions = useMemo(
 		() => (localActions.length > 0 ? [...(actions ?? []), ...localActions] : actions ?? []),
 		[actions, localActions],
+	);
+
+	// Istanti delle irrigazioni registrate: il grafico ci mette i marker 💧, che sono
+	// esattamente i momenti in cui la scala calibrata si è mossa.
+	const wateringTimes = useMemo(
+		() => allActions
+			.filter((a) => a.type === 'water')
+			.map((a) => new Date(a.date).getTime())
+			.filter((ms) => Number.isFinite(ms)),
+		[allActions],
 	);
 
 	const waterSuggestion = useMemo(
@@ -629,7 +643,26 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 					>
 						🪴 {readings.soilHumidity}%
 					</InfoPill>
+					<button
+						type="button"
+						className={`status-item chart-toggle ${showChart ? 'active' : ''}`}
+						onClick={() => setShowChart((v) => !v)}
+						title={t('chart.title')}
+						aria-expanded={showChart}
+					>
+						📈
+					</button>
 				</div>
+			)}
+
+			{showChart && (
+				<SoilHistoryChart
+					plantId={plant.id}
+					waterings={wateringTimes}
+					calibration={prediction?.calibration}
+					threshold={soilThreshold}
+					jumpDelta={plant.sensors?.soilJumpDelta}
+				/>
 			)}
 
 			{/* Finché la stima non guida lo stato resta un'informazione a margine. */}

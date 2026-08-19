@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import type { SensorSample } from '../shared/types';
 
 /**
  * Storico delle letture dei sensori.
@@ -34,20 +35,8 @@ const SERIES_CONFIG: Record<SeriesKey, SeriesConfig> = {
 	hum: { bucketMs: 30 * MINUTE_MS, maxSamples: 96 },
 };
 
-export interface Sample {
-	/** epoch ms */
-	t: number;
-	v: number;
-	/**
-	 * Valore massimo osservato dentro il bucket, presente solo se superiore a `v`.
-	 *
-	 * Serve perché il picco subito dopo un'irrigazione dura pochi minuti: tenendo
-	 * solo l'ultimo valore del bucket (giusto per la curva di asciugatura) il picco
-	 * andava perso, e la calibrazione finiva per credere che il terreno "pieno"
-	 * fosse molto più asciutto di quanto sia davvero.
-	 */
-	peak?: number;
-}
+// La forma del campione è condivisa col client, che ne disegna la curva sulla scheda.
+export type Sample = SensorSample;
 
 /** Massimo osservato per il campione: il picco se registrato, altrimenti il valore. */
 export function samplePeak(sample: Sample): number {

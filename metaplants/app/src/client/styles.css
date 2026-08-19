@@ -222,6 +222,89 @@ header h1 {
   color: #6b7280;
 }
 
+/* Apre/chiude il grafico dell'umidità: sta fra le pillole e ne condivide la forma. */
+.chart-toggle {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  background: #f3f4f6;
+  color: #6b7280;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.chart-toggle.active {
+  background: var(--green-200);
+  color: var(--green-800);
+}
+
+/* Grafico dell'umidità del terreno: la curva grezza con sopra ciò che il modello
+   ne ha dedotto (punti della scala, irrigazioni, risalite non confermate). */
+.soil-chart {
+  margin-top: 10px;
+  padding: 10px;
+  background: #fff;
+  border: 1px solid var(--green-100);
+  border-radius: var(--radius);
+}
+
+.soil-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.soil-chart-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--green-800);
+}
+
+.soil-chart-ranges {
+  display: flex;
+  gap: 4px;
+}
+
+.soil-chart-range {
+  border: 1px solid var(--green-100);
+  background: transparent;
+  color: #6b7280;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.soil-chart-range.active {
+  background: var(--green-100);
+  color: var(--green-800);
+  border-color: var(--green-200);
+}
+
+/* Il viewBox scala in larghezza: su telefono il grafico si stringe, non scrolla. */
+.soil-chart-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.soil-chart-note {
+  font-size: 0.78rem;
+  color: #6b7280;
+  padding: 12px 0;
+  text-align: center;
+}
+
+.soil-chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+  font-size: 0.72rem;
+  color: #6b7280;
+}
+
 /* Stima di quando servirà l'irrigazione: informativa finché non guida lo stato. */
 .prediction-pill {
   background: #f5f3ff;

@@ -58,6 +58,25 @@ export interface PlantSensors {
 	soilHumidityHistory?: number[];
 }
 
+/**
+ * Un campione dello storico sensori (history.json, vedi server/history.ts).
+ * Vive qui perché la scheda ne disegna la curva: il grafico è client, i dati server.
+ */
+export interface SensorSample {
+	/** epoch ms */
+	t: number;
+	v: number;
+	/**
+	 * Valore massimo osservato dentro il bucket, presente solo se superiore a `v`.
+	 *
+	 * Serve perché il picco subito dopo un'irrigazione dura pochi minuti: tenendo
+	 * solo l'ultimo valore del bucket (giusto per la curva di asciugatura) il picco
+	 * andava perso, e la calibrazione finiva per credere che il terreno "pieno"
+	 * fosse molto più asciutto di quanto sia davvero.
+	 */
+	peak?: number;
+}
+
 /** Cosa ha visto il sensore attorno a una singola irrigazione registrata. */
 export interface CalibrationObservation {
 	/** Quando è stata registrata l'irrigazione. */
