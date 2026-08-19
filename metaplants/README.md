@@ -162,8 +162,11 @@ It learns two things from the soil sensor plus your watering history:
   0% point from the driest reading in the hours before each watering, and the
   100% point from the peak actually reached just after it, then shows the
   recalibrated value on the card (🧠 pill) with the raw one beside it. Tap it —
-  or hover it with a mouse — to see both reference points, how many waterings
-  they come from and when the scale last moved. "Full" is treated as an extreme
+  or hover it with a mouse — to see both reference points *and the individual
+  waterings they're built from*: date, the low seen before each one, the peak
+  seen around it. The 0% point is the median of those lows, so that list is
+  where you'd spot a cycle whose low came from a sensor dropout rather than
+  from dry soil. "Full" is treated as an extreme
   rather than an average — a generous soak counts for more than a top-up — while
   still ignoring a single freak reading once there are several cycles to compare.
 

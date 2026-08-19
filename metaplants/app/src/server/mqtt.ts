@@ -486,6 +486,9 @@ function publishState(plant: Plant) {
 				// ritarata l'ultima volta: 0 / null = sta ancora usando la soglia manuale.
 				soil_calibrated_from: prediction.calibration?.samples ?? 0,
 				soil_calibrated_at: prediction.calibration?.lastCalibratedAt ?? null,
+				// Le singole irrigazioni dietro ai due punti: senza queste, una lettura
+				// anomala in un ciclo sposta la scala e non si vede da nessuna parte.
+				soil_calibration_cycles: prediction.calibration?.observations ?? [],
 			}
 			: null,
 		// Lettura grezza del sensore e chi sta facendo scattare l'allerta ('ai' = scala

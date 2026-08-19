@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
+import type { Plant, PlantAction, CalibrationObservation, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
 import { DAY_MS, HOUR_MS, getSeasonForDate, getCurrentSeason } from '../shared/schedule';
 import { getSamples, samplePeak, type Sample } from './history';
 
@@ -208,6 +208,13 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number): S
 	const recent = observeCycles(soil, waterings).slice(-CALIBRATION_CYCLES);
 	const dryValues = recent.map((o) => o.dry).filter((v): v is number => v != null);
 	const wetValues = recent.map((o) => o.wet).filter((v): v is number => v != null);
+	// Esposte così com'è: il punto secco è la mediana dei minimi, quindi un ciclo
+	// con una lettura sballata sposta la scala senza comparire da nessuna parte.
+	const observations: CalibrationObservation[] = recent.map((o) => ({
+		at: new Date(o.at).toISOString(),
+		dry: o.dry == null ? null : round(o.dry),
+		wet: o.wet == null ? null : round(o.wet),
+	}));
 
 	if (dryValues.length === 0 || wetValues.length === 0) {
 		// Nessuna irrigazione confermata che il sensore abbia visto: si ripiega sulla
@@ -218,7 +225,7 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number): S
 		if (fallbackDry == null || soil.length === 0) return null;
 		const observedPeak = Math.max(...soil.map(samplePeak));
 		if (observedPeak - fallbackDry < MIN_CALIBRATION_SPAN) return null;
-		return { dryPoint: round(fallbackDry), wetPoint: round(observedPeak), samples: 0, lastCalibratedAt: null };
+		return { dryPoint: round(fallbackDry), wetPoint: round(observedPeak), samples: 0, lastCalibratedAt: null, observations };
 	}
 
 	const dryPoint = median(dryValues);
@@ -231,6 +238,7 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number): S
 		wetPoint: round(wetPoint),
 		samples: recent.length,
 		lastCalibratedAt: new Date(recent[recent.length - 1].at).toISOString(),
+		observations,
 	};
 }
 

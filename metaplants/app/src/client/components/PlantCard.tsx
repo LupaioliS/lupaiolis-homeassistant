@@ -75,6 +75,16 @@ function formatDate(dateStr?: string): string {
 	return new Date(dateStr).toLocaleDateString();
 }
 
+/** "18 ago, 09:12" — per gli elenchi, dove la data estesa ruberebbe tutta la riga. */
+function formatShortDateTime(timestamp: number): string {
+	return new Date(timestamp).toLocaleString(undefined, {
+		day: 'numeric',
+		month: 'short',
+		hour: '2-digit',
+		minute: '2-digit',
+	});
+}
+
 function formatDateTime(timestamp: number): string {
 	return new Date(timestamp).toLocaleString(undefined, {
 		weekday: 'short',
@@ -127,13 +137,22 @@ function buildCalibrationInfo(prediction: WateringPrediction): string[] {
 	// chiedersi perché il numero non cambia mentre quello grezzo balla.
 	if (calibration.samples > 0) {
 		lines.push(t('prediction.calibrationSamples').replace('{count}', String(calibration.samples)));
-		if (calibration.lastCalibratedAt) {
-			lines.push(
-				t('prediction.calibrationAt').replace('{date}', formatDateTime(new Date(calibration.lastCalibratedAt).getTime())),
-			);
-		}
 	} else {
 		lines.push(t('prediction.calibrationPending'));
+	}
+	// Le singole irrigazioni da cui escono i due numeri. Il punto secco è la mediana
+	// di questi minimi: senza vederli, un ciclo con una lettura anomala sposta la
+	// scala e non c'è modo di accorgersene.
+	if (calibration.observations?.length) {
+		lines.push(t('prediction.calibrationCyclesTitle'));
+		for (const o of calibration.observations) {
+			lines.push(
+				t('prediction.calibrationCycle')
+					.replace('{date}', formatShortDateTime(new Date(o.at).getTime()))
+					.replace('{dry}', o.dry == null ? '—' : String(o.dry))
+					.replace('{wet}', o.wet == null ? '—' : String(o.wet)),
+			);
+		}
 	}
 	return lines;
 }

@@ -58,6 +58,16 @@ export interface PlantSensors {
 	soilHumidityHistory?: number[];
 }
 
+/** Cosa ha visto il sensore attorno a una singola irrigazione registrata. */
+export interface CalibrationObservation {
+	/** Quando è stata registrata l'irrigazione. */
+	at: string;
+	/** Minimo grezzo nelle 12h precedenti = "qui era secco". */
+	dry: number | null;
+	/** Massimo grezzo attorno all'irrigazione = "qui era pieno". */
+	wet: number | null;
+}
+
 /**
  * Rimappatura della scala grezza del sensore su quella che conta per la pianta,
  * imparata da come innaffi davvero: se innaffi sempre al 30%, per questa pianta
@@ -73,6 +83,10 @@ export interface SoilCalibration {
 	samples: number;
 	// Ultima irrigazione registrata che ha aggiornato la scala. null finché non ce n'è.
 	lastCalibratedAt?: string | null;
+	// Le singole irrigazioni da cui esce la scala, dalla più vecchia alla più recente.
+	// Servono a capire da dove arrivano i due numeri: il punto secco è la MEDIANA di
+	// questi minimi, quindi un ciclo con una lettura anomala si vede solo qui.
+	observations?: CalibrationObservation[];
 }
 
 export type PredictionConfidence = 'low' | 'medium' | 'high';
