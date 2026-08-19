@@ -103,6 +103,8 @@ export const en = {
 		calibrationCyclesTitle: 'From these waterings (0% = median of the lows):',
 		calibrationCycle: '· {date} → dry {dry}%, wet {wet}%',
 		calibrationPending: 'Not learned yet: starts from the manual threshold until you log a watering',
+		pendingDry: 'Log water now and I learn: dry = {value}%',
+		pendingDryNone: 'Log water now and no dry point is learned: needs at least 30 min of readings before the rise',
 		rawSecondary: 'Raw sensor reading — the alert comes from the % above',
 		thresholdUnused: 'no longer used for the alert',
 	},

@@ -261,6 +261,22 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number, ri
 	};
 }
 
+/**
+ * Il punto secco che verrebbe imparato registrando un'irrigazione in questo istante.
+ *
+ * Passa dalla stessa `observeCycles` che osserva le irrigazioni vere, con `now` al
+ * posto dell'orario dell'azione: l'anteprima non può divergere da ciò che poi
+ * succede davvero perché è letteralmente lo stesso calcolo. `null` significa che
+ * registrare adesso non insegnerebbe nessun punto secco.
+ *
+ * Vive fuori da `predictWatering` perché quella restituisce `null` finché non ha
+ * abbastanza dati per una stima — cioè proprio quando sapere questo serve di più.
+ */
+export function previewDryPoint(plant: Plant, now: number = Date.now()): number | null {
+	const observation = observeCycles(getSamples(plant.id, 'soil'), [now], plant.sensors?.soilJumpDelta)[0];
+	return observation?.dry != null ? round(observation.dry) : null;
+}
+
 /** Velocità di asciugatura del ciclo in corso; se non basta, media dei cicli passati. */
 function estimateDryRate(soil: Sample[], waterings: number[]): { rate: number; r2: number } | null {
 	const segments: Sample[][] = [];

@@ -3,7 +3,7 @@ import { getEntityState, isHaAvailable } from './homeassistant';
 import { broadcast } from './events';
 import { config } from './config';
 import { recordSample, getSamples, seedLegacySamples } from './history';
-import { predictWatering } from './predict';
+import { predictWatering, previewDryPoint } from './predict';
 import { Plant, PlantReadings, PlantSensors } from '../shared/types';
 
 // Risalita (in punti percentuali) entro SOIL_JUMP_WINDOW_MS che fa sospettare
@@ -105,6 +105,9 @@ async function readPlant(plant: Plant): Promise<void> {
 		soilHumidity: soilValue,
 		updatedAt: new Date(now).toISOString(),
 		prediction: computePrediction(plant, soilValue),
+		// Cosa imparerebbe la scala se registrassi un'irrigazione adesso: esiste anche
+		// quando la previsione non c'è ancora, che è quando serve di più saperlo.
+		nextDryPoint: s?.soilHumidity ? previewDryPoint(plant, now) : null,
 	};
 
 	readings.set(plant.id, next);
@@ -152,7 +155,11 @@ export async function refreshPlantReadings(plant: Plant): Promise<void> {
 export function refreshPrediction(plant: Plant): void {
 	const current = readings.get(plant.id);
 	if (!current) return;
-	const next: PlantReadings = { ...current, prediction: computePrediction(plant, current.soilHumidity) };
+	const next: PlantReadings = {
+		...current,
+		prediction: computePrediction(plant, current.soilHumidity),
+		nextDryPoint: plant.sensors?.soilHumidity ? previewDryPoint(plant) : null,
+	};
 	readings.set(plant.id, next);
 	broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
 }

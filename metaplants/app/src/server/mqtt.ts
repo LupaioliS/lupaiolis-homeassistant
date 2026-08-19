@@ -495,6 +495,9 @@ function publishState(plant: Plant) {
 		// calibrata, 'raw' = soglia manuale, 'none' = nessun sensore terreno).
 		soil_humidity_raw: soil.raw,
 		soil_alert_source: soil.source,
+		// Cosa imparerebbe la scala se un'irrigazione venisse registrata adesso
+		// (null = quel momento non insegnerebbe nessun punto secco).
+		soil_next_dry_point: currentReadings?.nextDryPoint ?? null,
 	};
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/attributes`, JSON.stringify(attributes));
 }

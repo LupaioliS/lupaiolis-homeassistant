@@ -145,6 +145,19 @@ export interface PlantReadings {
 	updatedAt: string;
 	// Stima interna: quando servirà la prossima irrigazione e come leggere la % grezza.
 	prediction?: WateringPrediction | null;
+	/**
+	 * Il punto secco che verrebbe imparato registrando un'irrigazione ADESSO.
+	 *
+	 * Serve a non dover indovinare: prima di premere "acqua" si vede che numero
+	 * finirà nella scala, e soprattutto se ne finirà uno. `null` = quel momento non
+	 * insegnerebbe niente (troppi pochi dati prima della risalita), che è una cosa
+	 * da sapere prima, non dopo.
+	 *
+	 * Sta qui e non dentro `prediction` di proposito: la previsione non esiste
+	 * finché il modello non ha abbastanza dati, cioè proprio quando questa
+	 * informazione serve di più.
+	 */
+	nextDryPoint?: number | null;
 }
 
 /** Un'entità di Home Assistant proposta nella scelta dei sensori. */

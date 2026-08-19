@@ -190,7 +190,9 @@ It learns two things from the soil sensor plus your watering history:
   waterings they're built from*: date, the low seen before each one, the peak
   seen around it. The 0% point is the median of those lows, so that list is
   where you'd spot a cycle whose low came from a sensor dropout rather than
-  from dry soil. "Full" is treated as an extreme
+  from dry soil. The same panel also previews what logging a watering *right
+  now* would teach ("dry = 38.7%"), or warns that it would teach nothing yet —
+  so you know before pressing, not after. "Full" is treated as an extreme
   rather than an average — a generous soak counts for more than a top-up — while
   still ignoring a single freak reading once there are several cycles to compare.
 

@@ -103,6 +103,8 @@ export const it = {
 		calibrationCyclesTitle: 'Da queste irrigazioni (0% = mediana dei minimi):',
 		calibrationCycle: '· {date} → secco {dry}%, bagnato {wet}%',
 		calibrationPending: 'Non ancora imparata: parte dalla soglia manuale finché non registri un\'irrigazione',
+		pendingDry: 'Se registri l\'acqua ora, imparo: secco = {value}%',
+		pendingDryNone: 'Se registri l\'acqua ora, non imparo nessun punto secco: servono almeno 30 min di letture prima della risalita',
 		rawSecondary: 'Lettura grezza del sensore — l\'allerta la decide la % qui sopra',
 		thresholdUnused: 'non più usata per l\'allerta',
 	},

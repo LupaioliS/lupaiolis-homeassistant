@@ -159,6 +159,19 @@ function buildCalibrationInfo(prediction: WateringPrediction): string[] {
 }
 
 /**
+ * Cosa imparerebbe la scala se registrassi un'irrigazione adesso.
+ *
+ * Sta fuori da buildCalibrationInfo perché serve soprattutto quando una scala
+ * ancora non c'è: è lì che vuoi sapere, prima di premere, se quel momento
+ * insegnerà qualcosa — e quale numero.
+ */
+function buildPendingInfo(readings: PlantReadings | undefined): string[] {
+	if (readings?.soilHumidity == null) return [];
+	if (readings.nextDryPoint == null) return [t('prediction.pendingDryNone')];
+	return [t('prediction.pendingDry').replace('{value}', String(readings.nextDryPoint))];
+}
+
+/**
  * Pillola con dettagli: al passaggio del mouse li mostra come tooltip, al
  * tocco/click apre il pannello sotto. Senza dettagli resta uno span normale.
  */
@@ -317,8 +330,9 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 			? [`${t('plant.soilHumidityThreshold')}: ${soilThreshold}%${water.soil.learned ? ` (${t('prediction.thresholdUnused')})` : ''}`]
 			: []),
 		...(prediction ? buildCalibrationInfo(prediction) : []),
+		...buildPendingInfo(readings),
 	];
-	const calibratedInfo = prediction ? buildCalibrationInfo(prediction) : [];
+	const calibratedInfo = [...(prediction ? buildCalibrationInfo(prediction) : []), ...buildPendingInfo(readings)];
 	const predictionInfo = prediction ? buildPredictionInfo(prediction) : [];
 
 	const infoByPill: Record<string, string[]> = {

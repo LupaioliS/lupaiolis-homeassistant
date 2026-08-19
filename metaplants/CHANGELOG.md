@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.2
+
+The soil pill details now tell you, **before** you press anything, what logging a watering right now would teach the scale: *"Log water now and I learn: dry = 38.7%"* — or that it would teach nothing at all, when there aren't yet 30 minutes of readings before the rise. 1.11.1 made the add-on refuse bad dry points; this makes that refusal visible in advance instead of leaving you to wonder afterwards.
+
+- The preview runs through the *same* function that observes real waterings, with "now" in place of the action timestamp, so it cannot drift from what actually gets recorded — it is literally the same calculation, not a reimplementation of it
+- It lives on the readings rather than inside the estimate, because the estimate doesn't exist until a plant has enough history — which is exactly when knowing whether a watering will teach anything matters most. A plant whose sensor was configured eight minutes ago now says so, instead of showing nothing
+- Also published on MQTT as `soil_next_dry_point` in the plant attributes
+
 ## 1.11.1
 
 Fix the 0% point of the learned scale being taken from a reading that was already wet. Water a plant at 38.7%, watch the sensor shoot up to 53%, press "water" — and the scale would record 53% as "this is where the plant gets watered", which is the one number it must never get wrong now that it raises the alert.
