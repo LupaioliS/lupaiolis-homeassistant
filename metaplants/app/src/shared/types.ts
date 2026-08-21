@@ -95,6 +95,8 @@ export interface CalibrationObservation {
 	dry: number | null;
 	/** Massimo grezzo attorno all'irrigazione = "qui era pieno". */
 	wet: number | null;
+	/** Chi ha dato l'acqua, se registrato: spiega un ciclo fuori scala. */
+	source?: WaterSource;
 }
 
 /**
@@ -206,6 +208,14 @@ export interface Plant {
 	sensors?: PlantSensors;
 }
 
+/**
+ * Chi ha dato l'acqua. È solo provenienza: la calibrazione tratta le tre allo
+ * stesso modo, perché il sensore misura l'acqua arrivata al vaso, non chi l'ha
+ * versata. Una pioggia che sul balcone coperto non bagna il terreno non produce
+ * nessuna risalita, quindi non insegna niente — se ne occupa già la curva.
+ */
+export type WaterSource = 'manual' | 'rain' | 'irrigation';
+
 export interface PlantAction {
 	id: string;
 	plantId: string;
@@ -215,6 +225,9 @@ export interface PlantAction {
 	amountMl?: number;
 	amountGrams?: number;
 	potSizeCm?: number;
+	// Solo per le irrigazioni. Assente = 'manual', così le azioni già registrate
+	// restano valide senza migrazione.
+	source?: WaterSource;
 }
 
 export interface PlantActionOptions {
@@ -222,4 +235,5 @@ export interface PlantActionOptions {
 	amountMl?: number;
 	amountGrams?: number;
 	potSizeCm?: number;
+	source?: WaterSource;
 }

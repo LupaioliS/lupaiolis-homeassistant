@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, CalibrationObservation, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
+import type { Plant, PlantAction, WaterSource, CalibrationObservation, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
 import { DAY_MS, HOUR_MS, getSeasonForDate, getCurrentSeason } from '../shared/schedule';
 import { getSamples, type Sample } from './history';
 import { findRises, samplePeak, sampleTrough } from '../shared/soil';
@@ -136,17 +136,24 @@ function linearFit(samples: Sample[]): Fit | null {
 	return { slopePerDay, r2, samples: n, spanMs: samples[n - 1].t - t0 };
 }
 
-function waterTimestamps(actions: PlantAction[]): number[] {
+/** Un'irrigazione registrata: quando, e da chi è arrivata l'acqua se lo sappiamo. */
+interface WateringEvent {
+	at: number;
+	source?: WaterSource;
+}
+
+function waterEvents(actions: PlantAction[]): WateringEvent[] {
 	return actions
 		.filter((a) => a.type === 'water')
-		.map((a) => new Date(a.date).getTime())
-		.filter((t) => Number.isFinite(t))
-		.sort((a, b) => a - b);
+		.map((a) => ({ at: new Date(a.date).getTime(), source: a.source }))
+		.filter((e) => Number.isFinite(e.at))
+		.sort((a, b) => a.at - b.at);
 }
 
 interface CycleObservation {
 	/** Istante dell'irrigazione confermata da cui arriva l'osservazione. */
 	at: number;
+	source?: WaterSource;
 	/** Minimo prima dell'acqua: il livello a cui questa pianta viene innaffiata. */
 	dry: number | null;
 	/** Massimo attorno all'irrigazione: il livello del terreno pieno. */
@@ -161,9 +168,9 @@ interface CycleObservation {
  * Un salto rilevato e non confermato non arriva fin qui, ed è voluto: la taratura
  * si muove solo quando sai per certo che c'è stata acqua.
  */
-function observeCycles(soil: Sample[], waterings: number[], riseDelta?: number): CycleObservation[] {
+function observeCycles(soil: Sample[], waterings: WateringEvent[], riseDelta?: number): CycleObservation[] {
 	const observations: CycleObservation[] = [];
-	for (const w of waterings) {
+	for (const { at: w, source } of waterings) {
 		// L'istante registrato non coincide con l'irrigazione vera: col prompt "hai
 		// innaffiato?" l'azione viene salvata quando il sensore è GIÀ salito, e la
 		// conferma può arrivare ore dopo. Perciò si guarda dentro una finestra ampia
@@ -187,6 +194,7 @@ function observeCycles(soil: Sample[], waterings: number[], riseDelta?: number):
 
 		observations.push({
 			at: w,
+			source,
 			dry: dryUsable ? Math.min(...beforeRise.map(sampleTrough)) : null,
 			wet: Math.max(...fromRise.map(samplePeak)),
 		});
@@ -221,7 +229,7 @@ function resolveWetPoint(wetValues: number[]): number {
  * Ricava la scala reale del sensore: a che % innaffi (0% utile) e a che %
  * arriva il terreno appena bagnato (100%).
  */
-function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number, riseDelta?: number): SoilCalibration | null {
+function calibrate(soil: Sample[], waterings: WateringEvent[], fallbackDry?: number, riseDelta?: number): SoilCalibration | null {
 	// Solo le ultime irrigazioni osservate: la scala deve descrivere il sensore com'è
 	// adesso, non la media di com'era nelle ultime due settimane.
 	const recent = observeCycles(soil, waterings, riseDelta).slice(-CALIBRATION_CYCLES);
@@ -231,6 +239,7 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number, ri
 	// con una lettura sballata sposta la scala senza comparire da nessuna parte.
 	const observations: CalibrationObservation[] = recent.map((o) => ({
 		at: new Date(o.at).toISOString(),
+		source: o.source,
 		dry: o.dry == null ? null : round(o.dry),
 		wet: o.wet == null ? null : round(o.wet),
 	}));
@@ -273,7 +282,7 @@ function calibrate(soil: Sample[], waterings: number[], fallbackDry?: number, ri
  * abbastanza dati per una stima — cioè proprio quando sapere questo serve di più.
  */
 export function previewDryPoint(plant: Plant, now: number = Date.now()): number | null {
-	const observation = observeCycles(getSamples(plant.id, 'soil'), [now], plant.sensors?.soilJumpDelta)[0];
+	const observation = observeCycles(getSamples(plant.id, 'soil'), [{ at: now }], plant.sensors?.soilJumpDelta)[0];
 	return observation?.dry != null ? round(observation.dry) : null;
 }
 
@@ -339,10 +348,11 @@ export function predictWatering(
 	now: number = Date.now(),
 ): WateringPrediction | null {
 	const soil = getSamples(plant.id, 'soil');
-	const waterings = waterTimestamps(actions);
+	const events = waterEvents(actions);
+	const waterings = events.map((e) => e.at);
 	const cycleInfo = averageCycle(waterings);
 
-	const calibration = calibrate(soil, waterings, plant.sensors?.soilHumidityThreshold, plant.sensors?.soilJumpDelta);
+	const calibration = calibrate(soil, events, plant.sensors?.soilHumidityThreshold, plant.sensors?.soilJumpDelta);
 	const dryRate = soil.length > 0 ? estimateDryRate(soil, waterings) : null;
 
 	// Stima dal sensore: quanto manca a scendere fino al livello a cui innaffi.

@@ -1,5 +1,11 @@
-import type { SensorSample, SoilCalibration } from '../shared/types';
+import type { SensorSample, SoilCalibration, WaterSource } from '../shared/types';
 import { findRises, samplePeak } from '../shared/soil';
+
+/** Un'irrigazione registrata, con chi ha dato l'acqua se lo sappiamo. */
+export interface WateringMark {
+	t: number;
+	source?: WaterSource;
+}
 
 /**
  * La matematica del grafico dell'umidità, separata dal componente.
@@ -34,8 +40,8 @@ export interface ChartBox {
 
 export interface ChartInput {
 	samples: SensorSample[];
-	/** Timestamp (ms) delle irrigazioni registrate. */
-	waterings: number[];
+	/** Irrigazioni registrate, con la provenienza per scegliere il marker. */
+	waterings: WateringMark[];
 	days: number;
 	box: ChartBox;
 	calibration?: SoilCalibration | null;
@@ -58,7 +64,7 @@ export interface ChartGeometry {
 	/** Campioni il cui picco dentro il bucket merita un trattino verticale. */
 	peaks: SensorSample[];
 	/** Irrigazioni registrate che cadono nell'intervallo mostrato. */
-	waterings: number[];
+	waterings: WateringMark[];
 	/** Risalite marcate senza un'irrigazione registrata attorno. */
 	unconfirmed: number[];
 }
@@ -118,7 +124,7 @@ export function buildSoilChart(input: ChartInput): ChartGeometry | null {
 	return {
 		x, y, minY, maxY, line, areas, ticks,
 		peaks: visible.filter((s) => peakOf(s) - s.v >= PEAK_MARK_MIN),
-		waterings: waterings.filter((w) => w >= from && w <= to),
-		unconfirmed: jumps.filter((j) => !waterings.some((w) => Math.abs(w - j) <= JUMP_MATCH_MS)),
+		waterings: waterings.filter((w) => w.t >= from && w.t <= to),
+		unconfirmed: jumps.filter((j) => !waterings.some((w) => Math.abs(w.t - j) <= JUMP_MATCH_MS)),
 	};
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Plant } from '../../shared/types';
+import type { Plant, WaterSource } from '../../shared/types';
 import { t } from '../i18n';
 
 export type ActionDialogType = 'water' | 'fertilize' | 'repot';
@@ -10,9 +10,17 @@ interface ActionDialogProps {
 	defaultValue?: number;
 	titleOverride?: string;
 	subtitle?: string;
-	onConfirm: (value: number) => void | Promise<void>;
+	/** Per l'acqua `value` può essere assente: della pioggia non si sanno i ml. */
+	onConfirm: (value: number | undefined, source?: WaterSource) => void | Promise<void>;
 	onClose: () => void;
 }
+
+// L'ordine è quello in cui capitano: quasi sempre la innaffi tu.
+const WATER_SOURCES: { id: WaterSource; emoji: string }[] = [
+	{ id: 'manual', emoji: '💧' },
+	{ id: 'rain', emoji: '🌧️' },
+	{ id: 'irrigation', emoji: '🚿' },
+];
 
 const WATER_MAX_ML = 1000;
 const WATER_DEFAULT_ML = 200;
@@ -29,12 +37,17 @@ export function ActionDialog({ type, plant, defaultValue, titleOverride, subtitl
 		: type === 'fertilize' ? FERTILIZE_DEFAULT_G
 		: Math.min(POT_MAX_CM, plant.potSizeCm ?? 12);
 	const [value, setValue] = useState(defaultValue ?? fallback);
+	const [source, setSource] = useState<WaterSource>('manual');
 	const [submitting, setSubmitting] = useState(false);
+
+	// Della pioggia non si sa quanta ne sia arrivata nel vaso: meglio nessun dato
+	// che un numero inventato, visto che le quantità alimentano i suggerimenti.
+	const amountKnown = type !== 'water' || source !== 'rain';
 
 	const handleConfirm = async () => {
 		setSubmitting(true);
 		try {
-			await onConfirm(value);
+			await onConfirm(amountKnown ? value : undefined, type === 'water' ? source : undefined);
 		} finally {
 			setSubmitting(false);
 		}
@@ -57,6 +70,27 @@ export function ActionDialog({ type, plant, defaultValue, titleOverride, subtitl
 				{subtitle && <p className="action-dialog-subtitle">{subtitle}</p>}
 
 				{type === 'water' && (
+					<div className="source-picker">
+						{WATER_SOURCES.map(({ id, emoji }) => (
+							<button
+								key={id}
+								type="button"
+								className={`source-option ${source === id ? 'active' : ''}`}
+								onClick={() => setSource(id)}
+								aria-pressed={source === id}
+							>
+								<span className="source-emoji">{emoji}</span>
+								<span>{t(`actions.source_${id}`)}</span>
+							</button>
+						))}
+					</div>
+				)}
+
+				{type === 'water' && !amountKnown && (
+					<p className="source-note">{t('actions.rainAmountUnknown')}</p>
+				)}
+
+				{type === 'water' && amountKnown && (
 					<div className="droplet-slider-wrap">
 						<div className="droplet-slider">
 							<div className="droplet-fill" style={{ height: `${(value / WATER_MAX_ML) * 100}%` }} />

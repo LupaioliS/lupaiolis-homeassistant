@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Plant, PlantAction, PlantReadings } from '../shared/types';
+import type { Plant, PlantAction, PlantReadings, WaterSource } from '../shared/types';
 import { api } from './api';
 import { PlantCard, isDoneToday } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
@@ -111,16 +111,16 @@ export function App() {
 		setPlants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
 	}, []);
 
-	const handleWater = async (id: string, amountMl: number) => {
+	const handleWater = async (id: string, amountMl: number | undefined, source?: WaterSource) => {
 		const now = new Date().toISOString();
 		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastWatered: now } : p)));
-		api.logAction(id, 'water', { amountMl }).catch(loadPlants);
+		api.logAction(id, 'water', { amountMl, source }).catch(loadPlants);
 	};
 
-	const handleSoilQueueConfirm = async (amountMl: number) => {
+	const handleSoilQueueConfirm = async (amountMl: number | undefined, source?: WaterSource) => {
 		const plant = soilWaterQueue[0];
 		if (!plant) return;
-		await handleWater(plant.id, amountMl);
+		await handleWater(plant.id, amountMl, source);
 		api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
 		setSoilWaterQueue((prev) => prev.slice(1));
 	};
@@ -297,7 +297,7 @@ export function App() {
 							plant={plant}
 							readings={readings[plant.id]}
 							actions={actionsByPlant[plant.id]}
-							onWater={(amountMl) => handleWater(plant.id, amountMl)}
+							onWater={(amountMl, source) => handleWater(plant.id, amountMl, source)}
 							onFertilize={(amountGrams) => handleFertilize(plant.id, amountGrams)}
 							onEdit={() => handleEdit(plant)}
 							onRefresh={loadPlants}

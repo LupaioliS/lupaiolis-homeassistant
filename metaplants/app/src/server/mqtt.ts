@@ -1,5 +1,5 @@
 import mqtt from 'mqtt';
-import type { Plant } from '../shared/types';
+import type { Plant, WaterSource } from '../shared/types';
 import { DAY_MS, describeDue, getCurrentSeason, getIntervalForSeason } from '../shared/schedule';
 import { assessSoil } from '../shared/soil';
 import { store } from './store';
@@ -13,6 +13,7 @@ const MQTT_USER = config.mqttUser;
 const MQTT_PASS = config.mqttPass;
 const DISCOVERY_PREFIX = config.discoveryPrefix;
 const TOPIC_PREFIX = 'metaplants';
+const WATER_SOURCES: WaterSource[] = ['manual', 'rain', 'irrigation'];
 
 let client: mqtt.MqttClient | null = null;
 const discoveredPlants = new Set<string>();
@@ -109,8 +110,13 @@ function handleCommand(topic: string, message: Buffer) {
 		return;
 	}
 
-	const notes = message.toString() || mt('actions.triggered_from_ha');
-	const result = store.addAction(plant.id, action, { notes });
+	// Il payload del comando fa da nota, ma se è esattamente una provenienza nota
+	// vale come tale: così un'automazione che apre una valvola può pubblicare
+	// "irrigation" e l'irrigazione risulta automatica invece che fatta a mano.
+	const payload = message.toString().trim();
+	const source = WATER_SOURCES.includes(payload as WaterSource) ? (payload as WaterSource) : undefined;
+	const notes = source ? mt('actions.triggered_from_ha') : payload || mt('actions.triggered_from_ha');
+	const result = store.addAction(plant.id, action, { notes, source });
 	if (result) {
 		const updated = store.getPlant(plant.id);
 		if (updated) {

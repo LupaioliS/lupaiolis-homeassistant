@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Plant, PlantAction, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings, WateringPrediction } from '../../shared/types';
+import type { Plant, PlantAction, WaterSource, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings, WateringPrediction } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
@@ -17,12 +17,15 @@ interface PlantCardProps {
 	readings?: PlantReadings;
 	/** Storico azioni della pianta, caricato una volta sola da App. */
 	actions?: PlantAction[];
-	onWater: (amountMl: number) => void | Promise<void>;
+	onWater: (amountMl: number | undefined, source?: WaterSource) => void | Promise<void>;
 	onFertilize: (amountGrams: number) => void | Promise<void>;
 	onEdit: () => void;
 	onRefresh: () => void;
 	onPatch: (plant: Plant) => void;
 }
+
+// Stessi simboli del selettore nel dialog dell'acqua e dei marker sul grafico.
+const WATER_SOURCE_EMOJI: Record<WaterSource, string> = { manual: '💧', rain: '🌧️', irrigation: '🚿' };
 
 // Stessa palette pastello dei pulsanti azione (.btn-water / .btn-fertilize): sfondo chiaro, testo scuro saturo.
 const SOIL_DRY_BG = [253, 230, 200]; // pastello marrone/secco (tipo .btn-fertilize)
@@ -150,6 +153,7 @@ function buildCalibrationInfo(prediction: WateringPrediction): string[] {
 			lines.push(
 				t('prediction.calibrationCycle')
 					.replace('{date}', formatShortDateTime(new Date(o.at).getTime()))
+					.replace('{source}', WATER_SOURCE_EMOJI[o.source ?? 'manual'])
 					.replace('{dry}', o.dry == null ? '—' : String(o.dry))
 					.replace('{wet}', o.wet == null ? '—' : String(o.wet)),
 			);
@@ -354,13 +358,13 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 		[actions, localActions],
 	);
 
-	// Istanti delle irrigazioni registrate: il grafico ci mette i marker 💧, che sono
-	// esattamente i momenti in cui la scala calibrata si è mossa.
+	// Le irrigazioni registrate, con chi ha dato l'acqua: il grafico ci mette i marker,
+	// che sono esattamente i momenti in cui la scala calibrata si è mossa.
 	const wateringTimes = useMemo(
 		() => allActions
 			.filter((a) => a.type === 'water')
-			.map((a) => new Date(a.date).getTime())
-			.filter((ms) => Number.isFinite(ms)),
+			.map((a) => ({ t: new Date(a.date).getTime(), source: a.source }))
+			.filter((w) => Number.isFinite(w.t)),
 		[allActions],
 	);
 
@@ -381,7 +385,7 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 	const lastFertGrams = lastOfType('fertilize', 'amountGrams');
 	const lastPotSizeCm = lastOfType('repot', 'potSizeCm');
 
-	const rememberAction = (type: PlantAction['type'], options: { amountMl?: number; amountGrams?: number; potSizeCm?: number } = {}) => {
+	const rememberAction = (type: PlantAction['type'], options: { amountMl?: number; amountGrams?: number; potSizeCm?: number; source?: WaterSource } = {}) => {
 		setLocalActions((prev) => [...prev, {
 			id: `local-${Date.now()}`,
 			plantId: plant.id,
@@ -467,18 +471,18 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 		setTimeout(() => setSproutTargets([]), SPROUT_DURATION_MS);
 	};
 
-	const handleDialogConfirm = async (value: number) => {
+	const handleDialogConfirm = async (value: number | undefined, source?: WaterSource) => {
 		if (activeDialog === 'water') {
-			rememberAction('water', { amountMl: value });
-			await onWater(value);
+			rememberAction('water', { amountMl: value, source });
+			await onWater(value, source);
 			launchWaterDroplets();
 		}
 		else if (activeDialog === 'fertilize') {
 			rememberAction('fertilize', { amountGrams: value });
-			await onFertilize(value);
+			await onFertilize(value ?? 0);
 			launchFertilizeSprouts();
 		}
-		else if (activeDialog === 'repot') await handleRepot(value);
+		else if (activeDialog === 'repot') await handleRepot(value ?? 0);
 		setActiveDialog(null);
 	};
 

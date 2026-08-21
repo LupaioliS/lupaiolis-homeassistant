@@ -137,6 +137,8 @@ export const store = {
 			amountMl: options?.amountMl,
 			amountGrams: options?.amountGrams,
 			potSizeCm: options?.potSizeCm,
+			// Solo per l'acqua: sulle altre azioni non vuol dire niente.
+			source: type === 'water' ? options?.source : undefined,
 		};
 
 		switch (type) {

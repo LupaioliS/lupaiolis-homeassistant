@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.3
+
+Watering now records **who gave the water**: by hand 💧, rain 🌧️, or an irrigation system 🚿. The picker sits at the top of the water dialog, and — where it matters most — in the "did you water it?" prompt, which until now could only be answered "yes, I did" or dismissed. A pot on a balcony that got soaked by a storm has an answer now.
+
+- The choice is **provenance, not behaviour**: all three recalibrate the scale exactly the same way. The sensor measures the water that reached the pot, not who poured it, and rain that a sheltered balcony never let through simply produces no rise — the curve already handles that case, so there's nothing to special-case
+- Rain records **no amount**: there's no telling how many ml of a shower actually landed in the pot, and a made-up number would feed the seasonal amount suggestions. The slider is replaced by a note when rain is selected
+- The chart marks each logged watering with its own symbol, so a cycle that looks odd explains itself at a glance ("ah, that one was rain"). The same symbols appear in the calibration cycle list
+- The MQTT water button accepts a provenance as its payload: publish `irrigation` to `metaplants/<slug>/water/set` and the watering is recorded as automatic. Groundwork for driving a valve from Home Assistant and having MetaPlants record it correctly
+- Existing actions are untouched and read as "by hand"; the field is optional, so nothing needs migrating. A source that isn't one of the three is dropped rather than stored, and a source on a non-watering action is ignored
+
 ## 1.11.2
 
 The soil pill details now tell you, **before** you press anything, what logging a watering right now would teach the scale: *"Log water now and I learn: dry = 38.7%"* — or that it would teach nothing at all, when there aren't yet 30 minutes of readings before the rise. 1.11.1 made the add-on refuse bad dry points; this makes that refusal visible in advance instead of leaving you to wonder afterwards.

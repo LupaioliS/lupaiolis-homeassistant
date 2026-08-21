@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import type { SeasonalSchedule, PlantSensors } from '../../shared/types';
+import type { SeasonalSchedule, PlantSensors, WaterSource } from '../../shared/types';
 import { DAY_MS, getCurrentSeason, getIntervalForSeason } from '../../shared/schedule';
 import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
@@ -13,6 +13,7 @@ import { listSensorEntities } from '../homeassistant';
 import { dropPlantHistory, getSamples, type SeriesKey } from '../history';
 
 const SERIES_KEYS: SeriesKey[] = ['soil', 'temp', 'hum'];
+const WATER_SOURCES: WaterSource[] = ['manual', 'rain', 'irrigation'];
 
 const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/jpeg': '.jpg',
@@ -167,9 +168,12 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	// Log action (water/fertilize/repot/prune)
-	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string; amountMl?: number; amountGrams?: number; potSizeCm?: number } }>('/plants/:id/actions', async (request, reply) => {
-		const { type, notes, amountMl, amountGrams, potSizeCm } = request.body;
-		const action = store.addAction(request.params.id, type, { notes, amountMl, amountGrams, potSizeCm });
+	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string; amountMl?: number; amountGrams?: number; potSizeCm?: number; source?: WaterSource } }>('/plants/:id/actions', async (request, reply) => {
+		const { type, notes, amountMl, amountGrams, potSizeCm, source } = request.body;
+		// Una provenienza sconosciuta viene ignorata invece di finire nello storico:
+		// vale come 'manual', che è il valore implicito di tutto ciò che è già salvato.
+		const safeSource = source && WATER_SOURCES.includes(source) ? source : undefined;
+		const action = store.addAction(request.params.id, type, { notes, amountMl, amountGrams, potSizeCm, source: safeSource });
 		if (!action) return reply.status(404).send({ error: 'Plant not found' });
 		const plant = store.getPlant(request.params.id);
 		if (plant) {

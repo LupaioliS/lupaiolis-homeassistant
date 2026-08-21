@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { SensorSample, SoilCalibration } from '../../shared/types';
+import type { SensorSample, SoilCalibration, WaterSource } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
-import { buildSoilChart, peakOf } from '../soilChart';
+import { buildSoilChart, peakOf, type WateringMark } from '../soilChart';
 
 /**
  * La curva dell'umidità del terreno, con sopra ciò che l'add-on ne ha dedotto.
@@ -32,10 +32,13 @@ const COLOR_DRY = '#b45309';
 const COLOR_WET = '#2563eb';
 const COLOR_MUTED = '#9ca3af';
 
+// Stessi simboli del selettore nel dialog dell'acqua: la legenda è nel gesto che hai fatto.
+const SOURCE_EMOJI: Record<WaterSource, string> = { manual: '💧', rain: '🌧️', irrigation: '🚿' };
+
 interface SoilHistoryChartProps {
 	plantId: string;
-	/** Timestamp (ms) delle irrigazioni registrate, per i marker 💧. */
-	waterings: number[];
+	/** Irrigazioni registrate: il marker cambia con chi ha dato l'acqua. */
+	waterings: WateringMark[];
 	calibration?: SoilCalibration | null;
 	/** Soglia manuale: disegnata solo finché non c'è una scala appresa. */
 	threshold?: number;
@@ -113,13 +116,17 @@ export function SoilHistoryChart({ plantId, waterings, calibration, threshold, j
 							</text>
 						))}
 
-						{/* Irrigazioni registrate: sono i momenti su cui la scala si ritara */}
+						{/* Irrigazioni registrate: sono i momenti su cui la scala si ritara.
+						    L'emoji dice chi ha dato l'acqua, così un ciclo strano si spiega
+						    subito ("ah, quella era pioggia"). */}
 						{chart.waterings.map((w) => (
-							<g key={`w-${w}`}>
-								<line x1={chart.x(w)} x2={chart.x(w)} y1={PAD_T} y2={H - PAD_B} stroke={COLOR_WET} strokeWidth="1" opacity="0.35" />
-								<text x={chart.x(w)} y={PAD_T - 3} textAnchor="middle" fontSize="9">
-									💧
-									<title>{`${t('chart.watered')} — ${new Date(w).toLocaleString()}`}</title>
+							<g key={`w-${w.t}`}>
+								<line x1={chart.x(w.t)} x2={chart.x(w.t)} y1={PAD_T} y2={H - PAD_B} stroke={COLOR_WET} strokeWidth="1" opacity="0.35" />
+								<text x={chart.x(w.t)} y={PAD_T - 3} textAnchor="middle" fontSize="9">
+									{SOURCE_EMOJI[w.source ?? 'manual']}
+									<title>
+										{`${t(`actions.source_${w.source ?? 'manual'}`)} — ${new Date(w.t).toLocaleString()}`}
+									</title>
 								</text>
 							</g>
 						))}
@@ -171,7 +178,7 @@ export function SoilHistoryChart({ plantId, waterings, calibration, threshold, j
 						)}
 					</svg>
 					<div className="soil-chart-legend">
-						<span>💧 {t('chart.watered')}</span>
+						<span>{SOURCE_EMOJI.manual} {t('chart.watered')}</span>
 						{chart.unconfirmed.length > 0 && <span>? {t('chart.unconfirmed')}</span>}
 					</div>
 				</>

@@ -153,6 +153,28 @@ only fetched when you open the chart, so it costs nothing on plants you don't
 open. It's served by `GET /api/plants/<id>/history?days=<n>&series=soil|temp|hum`
 (temperature and ambient humidity keep ~2 days, soil ~14).
 
+### Who gave the water
+
+Every logged watering can say where the water came from: **by hand** 💧, **rain**
+🌧️ or an **irrigation system** 🚿. The picker is at the top of the water dialog
+and in the "did you water it?" prompt, which is where it earns its keep — an
+outdoor pot that a storm soaked can now be answered honestly instead of being
+recorded as something you did.
+
+It's provenance, not behaviour: all three recalibrate the scale identically,
+because the sensor measures the water that reached the pot regardless of who
+poured it. Rain that a sheltered balcony never let through produces no rise, so
+it teaches nothing — no special case needed. Rain records no amount, since
+there's no way to know how much of a shower landed in the pot.
+
+The chart and the calibration cycle list both use those symbols, so a cycle that
+looks odd tends to explain itself. Waterings logged before this existed read as
+"by hand".
+
+On MQTT, the water button accepts a provenance as its payload: publishing
+`irrigation` to `metaplants/<slug>/water/set` records the watering as automatic
+rather than manual — which is what an automation driving a valve should send.
+
 ### "Did you water it?" prompt
 
 When the soil reading jumps up sharply, someone probably watered the plant
