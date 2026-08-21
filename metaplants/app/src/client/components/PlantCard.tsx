@@ -368,10 +368,16 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 		[allActions],
 	);
 
-	const waterSuggestion = useMemo(
+	// La curva descrive la pianta, lo storico descrive chi la innaffia: quando la
+	// stima ha imparato abbastanza vince lei, altrimenti si ripiega sui divari fra
+	// le irrigazioni registrate (che è tutto ciò che si ha senza sensore).
+	const modelCycleDays = prediction && prediction.confidence !== 'low' ? prediction.fullCycleDays : null;
+	const historySuggestion = useMemo(
 		() => computeSeasonalSuggestions(allActions, 'water')[season] ?? null,
 		[allActions, season],
 	);
+	const waterSuggestion = modelCycleDays != null ? Math.max(1, Math.round(modelCycleDays)) : historySuggestion;
+	const waterSuggestionFromModel = modelCycleDays != null;
 	const fertSuggestion = useMemo(
 		() => computeSeasonalSuggestions(allActions, 'fertilize')[season] ?? null,
 		[allActions, season],
@@ -721,10 +727,12 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 				<button
 					type="button"
 					className="btn btn-secondary btn-sm suggestion-btn"
-					title={t('schedule.suggested')}
+					title={t(waterSuggestionFromModel ? 'schedule.suggestedFromModel' : 'schedule.suggested')}
 					onClick={applyWaterSuggestion}
 				>
-					{t('schedule.newSuggestionWater').replace('{season}', t(`seasons.${season}`)).replace('{days}', String(waterSuggestion))}
+					{t(waterSuggestionFromModel ? 'schedule.newSuggestionWaterModel' : 'schedule.newSuggestionWater')
+						.replace('{season}', t(`seasons.${season}`))
+						.replace('{days}', String(waterSuggestion))}
 				</button>
 			)}
 			{fertSuggestion != null && fertSuggestion !== plant.fertilizingSchedule?.[season] && (

@@ -134,6 +134,17 @@ export interface WateringPrediction {
 	normalizedSoilHumidity: number | null;
 	// Media dei giorni fra irrigazioni osservata nella stagione corrente.
 	averageCycleDays: number | null;
+	/**
+	 * Quanti giorni impiega il terreno ad andare dal pieno al livello a cui innaffi,
+	 * alla velocità di asciugatura attuale: (bagnato − secco) / velocità.
+	 *
+	 * È la stessa domanda a cui risponde il programma stagionale, ma misurata sulla
+	 * pianta invece che sulle tue abitudini — la media dei divari fra irrigazioni
+	 * registra anche le ferie, i giorni saltati e la pioggia. Attenzione: il punto
+	 * secco resta imparato da quando innaffi tu, quindi è "quanto ci mette ad
+	 * arrivare al livello a cui la porti di solito", non un fabbisogno assoluto.
+	 */
+	fullCycleDays: number | null;
 	// Cicli completi di irrigazione usati per addestrare il modello.
 	cycles: number;
 	confidence: PredictionConfidence;

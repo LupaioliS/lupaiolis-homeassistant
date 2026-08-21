@@ -161,11 +161,16 @@ and in the "did you water it?" prompt, which is where it earns its keep — an
 outdoor pot that a storm soaked can now be answered honestly instead of being
 recorded as something you did.
 
-It's provenance, not behaviour: all three recalibrate the scale identically,
-because the sensor measures the water that reached the pot regardless of who
-poured it. Rain that a sheltered balcony never let through produces no rise, so
-it teaches nothing — no special case needed. Rain records no amount, since
-there's no way to know how much of a shower landed in the pot.
+Rain is treated differently in one specific way: it can raise the **100%** point
+of the learned scale — a storm genuinely fills the pot — but it never sets the
+**0%** point. That point means "this is the level at which this plant should get
+water", which is a decision you make, not something the weather decides; rain
+falling on soil that was still damp would otherwise teach the plant to ask for
+water while wet. Rain also records no amount, since there's no way to know how
+much of a shower landed in the pot.
+
+Manual and irrigation waterings contribute both points, and all three reset the
+seasonal schedule — the plant did get water, whoever gave it.
 
 The chart and the calibration cycle list both use those symbols, so a cycle that
 looks odd tends to explain itself. Waterings logged before this existed read as
@@ -239,8 +244,22 @@ clean dry-down fit and a calibration from real waterings, it's promoted to
 "needs attention" banner. The seasonal schedule stays as the fallback and is
 always one tap (or hover) away on the pill itself.
 
+### Where the "water every N days" suggestion comes from
+
+The card offers a seasonal frequency when it thinks the configured one is off.
+Once the estimate is mature it is measured from the curve — `(100% point − 0%
+point) / dry-down rate`, i.e. how long the soil takes to dry down to the level
+you water at, at the speed it is drying now — and the button says so with a 🧠.
+That is a property of the plant; the previous method, the average gap between
+your waterings, was a property of *you*: it counted holidays, forgotten days and
+rain alike. Without a soil sensor or a learned calibration that average is still
+the fallback, now ignoring any gap that starts or ends with rain.
+
+Both are only suggestions: nothing changes until you tap the button.
+
 The estimate is also published on MQTT inside the plant attributes, under
 `prediction` (`next_watering`, `days_left`, `confidence`, `dry_rate_per_day`,
+`full_cycle_days`,
 `soil_dry_point`, `soil_wet_point`, `soil_humidity_calibrated`,
 `soil_calibrated_from`, `soil_calibrated_at`), so automations can use it
 directly.

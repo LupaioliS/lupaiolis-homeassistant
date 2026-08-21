@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.11.4
+
+The seasonal schedule suggestion ("water every N days") now comes from the **soil curve** instead of the average gap between your waterings, and rain no longer teaches the plant that wet soil means it's thirsty.
+
+- The suggested interval is `(wet point − dry point) / dry-down rate`: how long the soil takes to go from full to the level you water at, at the speed it is drying right now. The old average measured *you* — it counted the week you were away, the days you forgot, and the rain. Measured on the same plant with the same soil: watering every 5 days regularly, both methods agree (5 vs 5.3); with one 12-day gap from a holiday the average jumps to 7 while the curve stays at 5.3. It needs a soil sensor and a calibration learned from real waterings; without those the historical average is still used, and the button says which one you're looking at
+- **Rain no longer contributes the 0% point.** It still contributes the 100% one — a storm genuinely fills the pot — but "this is the level at which the plant should get water" is a decision, not weather. Logging rain on soil that was still damp taught exactly the opposite, and since 1.10.3 that point is what raises the alert: two such rains in the last three cycles moved the learned dry point from 40% to 52%, i.e. the plant would start asking for water while wet. This corrects the claim made when sources were introduced in 1.11.3 that all three were interchangeable for calibration; they are not
+- The historical fallback now skips any gap that starts or ends with rain, rather than dropping rain events from the series — removing them would merge two short gaps into one long one and make the suggestion wrong in the other direction
+- `full_cycle_days` is published in the MQTT prediction attributes
+
+Plants whose calibration was already pulled by logged rain recover on their next two decided waterings.
+
 ## 1.11.3
 
 Watering now records **who gave the water**: by hand 💧, rain 🌧️, or an irrigation system 🚿. The picker sits at the top of the water dialog, and — where it matters most — in the "did you water it?" prompt, which until now could only be answered "yes, I did" or dismissed. A pot on a balcony that got soaked by a storm has an answer now.

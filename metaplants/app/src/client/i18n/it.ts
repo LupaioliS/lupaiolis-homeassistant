@@ -135,8 +135,10 @@ export const it = {
 		title: 'Frequenza stagionale',
 		watering: 'Irrigazione (giorni)',
 		fertilizing: 'Concimazione (giorni)',
-		suggested: 'Suggerito dallo storico — clicca per applicare',
+		suggested: 'Suggerito dallo storico delle irrigazioni — clicca per applicare',
+		suggestedFromModel: 'Misurato sulla curva del terreno: quanto ci mette ad asciugarsi fino al livello a cui innaffi — clicca per applicare',
 		newSuggestionWater: '💡 Nuovo suggerimento per {season}: bagna ogni {days}g',
+		newSuggestionWaterModel: '🧠 Dalla curva: in {season} bagna ogni {days}g',
 		newSuggestionFertilize: '💡 Nuovo suggerimento per {season}: concima ogni {days}g',
 	},
 	health: {

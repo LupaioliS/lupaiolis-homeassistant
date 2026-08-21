@@ -135,8 +135,10 @@ export const en = {
 		title: 'Seasonal schedule',
 		watering: 'Watering (days)',
 		fertilizing: 'Fertilizing (days)',
-		suggested: 'Suggested from history — click to apply',
+		suggested: 'Suggested from your watering history — click to apply',
+		suggestedFromModel: 'Measured from the soil curve: how long it takes to dry down to the level you water at — click to apply',
 		newSuggestionWater: '💡 New suggestion for {season}: water every {days}d',
+		newSuggestionWaterModel: '🧠 From the curve: in {season} water every {days}d',
 		newSuggestionFertilize: '💡 New suggestion for {season}: fertilize every {days}d',
 	},
 	health: {

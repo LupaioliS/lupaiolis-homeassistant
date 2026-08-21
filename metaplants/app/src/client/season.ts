@@ -16,24 +16,33 @@ export const seasonEmoji: Record<Season, string> = {
  * For each consecutive pair of actions of the given type, the elapsed days are
  * attributed to the season in which the earlier action happened, then averaged
  * per season. Seasons without enough data are omitted.
+ *
+ * È il ripiego per le piante senza sensore: quando c'è una stima matura il
+ * suggerimento arriva dalla curva (`prediction.fullCycleDays`), che misura la
+ * pianta invece delle abitudini di chi la innaffia.
  */
 export function computeSeasonalSuggestions(
 	actions: PlantAction[],
 	type: 'water' | 'fertilize',
 ): Partial<SeasonalSchedule> {
-	const times = actions
+	const events = actions
 		.filter((a) => a.type === type)
-		.map((a) => new Date(a.date).getTime())
-		.filter((time) => !Number.isNaN(time))
-		.sort((a, b) => a - b);
+		.map((a) => ({ at: new Date(a.date).getTime(), source: a.source }))
+		.filter((e) => !Number.isNaN(e.at))
+		.sort((a, b) => a.at - b.at);
 
-	if (times.length < 2) return {};
+	if (events.length < 2) return {};
 
 	const buckets: Record<Season, number[]> = { spring: [], summer: [], autumn: [], winter: [] };
-	for (let i = 1; i < times.length; i++) {
-		const deltaDays = (times[i] - times[i - 1]) / (1000 * 60 * 60 * 24);
+	for (let i = 1; i < events.length; i++) {
+		// Un divario che comincia o finisce con una pioggia non dice ogni quanto
+		// devi innaffiare TU: dice che ha piovuto. Si scarta la coppia invece di
+		// togliere l'evento, perché toglierlo fonderebbe due divari brevi in uno
+		// lungo e il suggerimento sbaglierebbe dalla parte opposta.
+		if (events[i].source === 'rain' || events[i - 1].source === 'rain') continue;
+		const deltaDays = (events[i].at - events[i - 1].at) / (1000 * 60 * 60 * 24);
 		if (deltaDays <= 0) continue;
-		const season = getSeasonForDate(new Date(times[i - 1]));
+		const season = getSeasonForDate(new Date(events[i - 1].at));
 		buckets[season].push(deltaDays);
 	}
 

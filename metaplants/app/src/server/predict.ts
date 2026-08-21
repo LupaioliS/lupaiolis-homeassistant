@@ -49,6 +49,9 @@ const WET_DROP_CONFIRMATIONS = 2;
 // Servono almeno questi campioni, su questo arco di tempo, per fidarsi della pendenza.
 const MIN_RATE_SAMPLES = 6;
 const MIN_RATE_SPAN_MS = 6 * HOUR_MS;
+// Oltre questa durata il ciclo non è più un suggerimento sensato ma il sintomo di
+// un sensore quasi piatto: meglio troncarlo che proporre "bagna ogni 8 mesi".
+const MAX_CYCLE_DAYS = 90;
 // Cicli di irrigazione oltre i quali il modello si considera "maturo".
 const CONFIDENT_CYCLES = 3;
 const MAX_CYCLES_CONSIDERED = 8;
@@ -192,10 +195,18 @@ function observeCycles(soil: Sample[], waterings: WateringEvent[], riseDelta?: n
 		const spanMs = beforeRise.length > 1 ? beforeRise[beforeRise.length - 1].t - beforeRise[0].t : 0;
 		const dryUsable = beforeRise.length >= MIN_DRY_SAMPLES && spanMs >= MIN_DRY_SPAN_MS;
 
+		// La pioggia bagna davvero, quindi il punto BAGNATO vale come gli altri: il
+		// terreno è arrivato lì per davvero. Il punto SECCO invece no — dice "a questo
+		// livello questa pianta va innaffiata", ed è una decisione, non un evento
+		// meteorologico. Se piove su un vaso ancora umido, prenderlo per buono
+		// insegnerebbe che quel livello umido è il momento di dare acqua: due piogge
+		// così di fila e la pianta comincia a chiedere acqua da bagnata.
+		const decidedWatering = source !== 'rain';
+
 		observations.push({
 			at: w,
 			source,
-			dry: dryUsable ? Math.min(...beforeRise.map(sampleTrough)) : null,
+			dry: dryUsable && decidedWatering ? Math.min(...beforeRise.map(sampleTrough)) : null,
 			wet: Math.max(...fromRise.map(samplePeak)),
 		});
 	}
@@ -393,6 +404,16 @@ export function predictWatering(
 		confidence = 'medium';
 	}
 
+	// Durata del ciclo misurata sulla pianta: dal terreno pieno al livello a cui
+	// innaffi, alla velocità con cui si sta asciugando. Serve al suggerimento del
+	// programma stagionale, che altrimenti media i divari fra le tue irrigazioni —
+	// e quella media contiene le ferie, i giorni saltati e la pioggia.
+	// Richiede una scala imparata da irrigazioni vere (samples > 0): con la soglia
+	// manuale come 0% il numero descriverebbe la soglia, non la pianta.
+	const fullCycleDays = calibration && calibration.samples > 0 && dryRate
+		? clamp(round((calibration.wetPoint - calibration.dryPoint) / dryRate.rate, 1), 1, MAX_CYCLE_DAYS)
+		: null;
+
 	const normalized = calibration && currentSoil != null
 		? clamp(((currentSoil - calibration.dryPoint) / (calibration.wetPoint - calibration.dryPoint)) * 100, 0, 100)
 		: null;
@@ -404,6 +425,7 @@ export function predictWatering(
 		calibration,
 		normalizedSoilHumidity: normalized == null ? null : Math.round(normalized),
 		averageCycleDays: cycleInfo ? round(cycleInfo.days, 1) : null,
+		fullCycleDays,
 		cycles,
 		confidence,
 		source,

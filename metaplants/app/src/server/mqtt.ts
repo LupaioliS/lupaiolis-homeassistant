@@ -485,6 +485,9 @@ function publishState(plant: Plant) {
 				confidence: prediction.confidence,
 				source: prediction.source,
 				dry_rate_per_day: prediction.dryRatePerDay,
+				// Durata del ciclo misurata sulla curva, non sulle abitudini: è il numero
+				// che il suggerimento del programma stagionale propone.
+				full_cycle_days: prediction.fullCycleDays,
 				soil_dry_point: prediction.calibration?.dryPoint ?? null,
 				soil_wet_point: prediction.calibration?.wetPoint ?? null,
 				soil_humidity_calibrated: prediction.normalizedSoilHumidity,
