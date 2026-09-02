@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage, PlantReadings, HaEntityList, SensorSample } from '../shared/types';
+import type { Plant, PlantAction, PlantActionOptions, PlantActionPatch, HealthIssue, ProductUsage, PlantReadings, HaEntityList, SensorSample } from '../shared/types';
 import { BASE_PATH } from './basePath';
 import { prepareImageForUpload } from './imageResize';
 
@@ -34,6 +34,10 @@ export const api = {
 	getActions: (plantId: string) =>
 		request<PlantAction[]>(`/plants/${encodeURIComponent(plantId)}/actions`),
 	getAllActions: () => request<PlantAction[]>('/actions'),
+	updateAction: (actionId: string, patch: PlantActionPatch) =>
+		request<PlantAction>(`/actions/${encodeURIComponent(actionId)}`, { method: 'PUT', body: JSON.stringify(patch) }),
+	deleteAction: (actionId: string) =>
+		request<{ success: boolean }>(`/actions/${encodeURIComponent(actionId)}`, { method: 'DELETE' }),
 	addHealthIssue: (plantId: string, data: { type: string; name: string; detectedDate: string; notes?: string; imageUrl?: string }) =>
 		request<HealthIssue>(`/plants/${encodeURIComponent(plantId)}/health`, {
 			method: 'POST',

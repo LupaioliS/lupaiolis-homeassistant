@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.12.0
+
+A **history page** (📋 next to "Add plant") lists every logged action in a table you can edit: date and time, amount, provenance, notes — plus delete, plus adding a row after the fact. Inside the add-on container the JSON files aren't reachable, so until now a watering logged at the wrong time was permanent.
+
+- It isn't only convenience. The scale the add-on learns is anchored to the rise in the soil curve *within a window around the logged timestamp* (see 1.11.1), so a watering logged a day late doesn't teach a wrong dry point — it teaches nothing, or worse, it teaches from the wrong cycle. Correcting the timestamp is the difference between a calibration built on three cycles and one built on two
+- Deleting a row is the answer to "this watering shouldn't count": a top-up before a trip, a pot moved under a tap. It's the missing counterpart to `rain`, which already contributes only the wet point
+- Adding a row backdated is the answer to the opposite case — you watered and never told the add-on
+- `lastWatered` & co. are a denormalised copy of the most recent action, so they are recomputed from the history after every edit; only the type touched by the change is recomputed, since repotting and pruning dates can also be set by hand on the plant form
+- Every edit republishes MQTT and re-runs the estimate immediately, exactly as pressing the button does
+
 ## 1.11.4
 
 The seasonal schedule suggestion ("water every N days") now comes from the **soil curve** instead of the average gap between your waterings, and rain no longer teaches the plant that wet soil means it's thirsty.

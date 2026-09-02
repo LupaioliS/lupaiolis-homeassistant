@@ -3,9 +3,9 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import type { SeasonalSchedule, PlantSensors, WaterSource } from '../../shared/types';
+import type { SeasonalSchedule, PlantSensors, WaterSource, PlantAction, PlantActionPatch } from '../../shared/types';
 import { DAY_MS, getCurrentSeason, getIntervalForSeason } from '../../shared/schedule';
-import { store, UPLOADS_DIR, ensureUploadsDir } from '../store';
+import { store, UPLOADS_DIR, ensureUploadsDir, normalizeDate } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
 import { broadcast } from '../events';
 import { getAllReadings, getReadings, refreshPlantReadings, refreshPrediction } from '../sensors';
@@ -14,6 +14,22 @@ import { dropPlantHistory, getSamples, type SeriesKey } from '../history';
 
 const SERIES_KEYS: SeriesKey[] = ['soil', 'temp', 'hum'];
 const WATER_SOURCES: WaterSource[] = ['manual', 'rain', 'irrigation'];
+const ACTION_TYPES: PlantAction['type'][] = ['water', 'fertilize', 'repot', 'prune'];
+
+/**
+ * Ciò che va rifatto quando lo storico azioni cambia, da qualunque strada arrivi:
+ * pulsante sulla scheda, MQTT o riga corretta a mano dalla tabella.
+ */
+function publishActionChange(plantId: string, type: PlantAction['type']) {
+	const plant = store.getPlant(plantId);
+	if (!plant) return;
+	publishPlant(plant);
+	broadcast({ type: 'plant-updated', plant });
+	broadcast({ type: 'actions-changed', plantId });
+	// Un'irrigazione sposta sia il ciclo medio che il punto di partenza della curva:
+	// la stima va rifatta subito, non al prossimo poll.
+	if (type === 'water') refreshPrediction(plant);
+}
 
 const ALLOWED_IMAGE_EXT: Record<string, string> = {
 	'image/jpeg': '.jpg',
@@ -168,22 +184,38 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	});
 
 	// Log action (water/fertilize/repot/prune)
-	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string; amountMl?: number; amountGrams?: number; potSizeCm?: number; source?: WaterSource } }>('/plants/:id/actions', async (request, reply) => {
-		const { type, notes, amountMl, amountGrams, potSizeCm, source } = request.body;
+	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string; amountMl?: number; amountGrams?: number; potSizeCm?: number; source?: WaterSource; date?: string } }>('/plants/:id/actions', async (request, reply) => {
+		const { type, notes, amountMl, amountGrams, potSizeCm, source, date } = request.body;
+		if (!ACTION_TYPES.includes(type)) return reply.status(400).send({ error: 'Unknown action type' });
 		// Una provenienza sconosciuta viene ignorata invece di finire nello storico:
 		// vale come 'manual', che è il valore implicito di tutto ciò che è già salvato.
 		const safeSource = source && WATER_SOURCES.includes(source) ? source : undefined;
-		const action = store.addAction(request.params.id, type, { notes, amountMl, amountGrams, potSizeCm, source: safeSource });
+		// Registrare a posteriori è consentito, inventare una data no: la calibrazione
+		// cerca la risalita del terreno attorno a questo istante.
+		if (date != null && normalizeDate(date) == null) return reply.status(400).send({ error: 'Invalid date' });
+		const action = store.addAction(request.params.id, type, { notes, amountMl, amountGrams, potSizeCm, source: safeSource, date });
 		if (!action) return reply.status(404).send({ error: 'Plant not found' });
-		const plant = store.getPlant(request.params.id);
-		if (plant) {
-			publishPlant(plant);
-			broadcast({ type: 'plant-updated', plant });
-			// Un'irrigazione appena registrata sposta sia il ciclo medio che il punto
-			// di partenza della curva: la stima va rifatta subito, non al prossimo poll.
-			if (type === 'water') refreshPrediction(plant);
-		}
+		publishActionChange(action.plantId, action.type);
 		return action;
+	});
+
+	// Correzione di una riga dello storico. Serve perché quello che il modello impara
+	// dipende dall'ora esatta dell'irrigazione, e dentro il container i JSON non si toccano.
+	fastify.put<{ Params: { actionId: string }; Body: PlantActionPatch }>('/actions/:actionId', async (request, reply) => {
+		const { date, notes, amountMl, amountGrams, potSizeCm, source } = request.body ?? {};
+		if (date != null && normalizeDate(date) == null) return reply.status(400).send({ error: 'Invalid date' });
+		if (source != null && !WATER_SOURCES.includes(source)) return reply.status(400).send({ error: 'Unknown water source' });
+		const action = store.updateAction(request.params.actionId, { date, notes, amountMl, amountGrams, potSizeCm, source });
+		if (!action) return reply.status(404).send({ error: 'Action not found' });
+		publishActionChange(action.plantId, action.type);
+		return action;
+	});
+
+	fastify.delete<{ Params: { actionId: string } }>('/actions/:actionId', async (request, reply) => {
+		const removed = store.deleteAction(request.params.actionId);
+		if (!removed) return reply.status(404).send({ error: 'Action not found' });
+		publishActionChange(removed.plantId, removed.type);
+		return { success: true };
 	});
 
 	// Get actions for a plant

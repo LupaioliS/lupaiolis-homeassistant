@@ -1082,3 +1082,117 @@ header h1 {
   border-radius: 6px;
   border: 1px solid var(--green-200);
 }
+
+/* Action history table */
+.history-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.history-toolbar select {
+  padding: 8px 10px;
+  border: 1px solid var(--green-200);
+  border-radius: 8px;
+  background: white;
+  color: var(--green-800);
+  font-size: 0.85rem;
+}
+
+.history-toolbar .btn-primary {
+  margin-left: auto;
+}
+
+.history-hint {
+  font-size: 0.8rem;
+  color: var(--green-700);
+  line-height: 1.4;
+  margin-bottom: 12px;
+}
+
+.history-error {
+  font-size: 0.82rem;
+  color: #dc2626;
+  margin-bottom: 12px;
+}
+
+/* Su telefono la tabella non ci sta: scorre in orizzontale invece di comprimersi
+   fino a rendere illeggibili proprio le colonne che si vengono a correggere. */
+.history-table-wrap {
+  background: white;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+  padding: 8px;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.history-table th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--green-800);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--green-200);
+}
+
+.history-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--green-100);
+  vertical-align: middle;
+}
+
+.history-table tr:last-child td {
+  border-bottom: none;
+}
+
+.history-row-editing td,
+.history-row-new td {
+  background: var(--green-50);
+}
+
+.history-table input,
+.history-table select {
+  padding: 6px 8px;
+  border: 1px solid var(--green-200);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  outline: none;
+  max-width: 200px;
+}
+
+.history-table input:focus,
+.history-table select:focus {
+  border-color: var(--green-500);
+}
+
+.history-table input[type='number'] {
+  width: 80px;
+}
+
+.history-amount-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #777;
+}
+
+.history-notes {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}

@@ -247,4 +247,20 @@ export interface PlantActionOptions {
 	amountGrams?: number;
 	potSizeCm?: number;
 	source?: WaterSource;
+	// Assente = adesso. Serve a registrare a posteriori un'irrigazione dimenticata:
+	// la calibrazione guarda la curva attorno a questa data, quindi l'ora conta.
+	date?: string;
+}
+
+/**
+ * Modifica di una riga già in archivio. `null` cancella il campo: da tabella
+ * "lascio il campo vuoto" e "non tocco il campo" sono due cose diverse.
+ */
+export interface PlantActionPatch {
+	date?: string;
+	notes?: string | null;
+	amountMl?: number | null;
+	amountGrams?: number | null;
+	potSizeCm?: number | null;
+	source?: WaterSource | null;
 }

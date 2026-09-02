@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import type { Plant, PlantAction, PlantActionOptions, HealthIssue, ProductUsage } from '../shared/types';
+import type { Plant, PlantAction, PlantActionOptions, PlantActionPatch, HealthIssue, ProductUsage } from '../shared/types';
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '../../data'));
 const PLANTS_FILE = path.join(DATA_DIR, 'plants.json');
@@ -74,7 +74,46 @@ function writeActions(actions: PlantAction[]) {
 	actionsCache = actions;
 	fs.writeFileSync(ACTIONS_FILE, JSON.stringify(actions, null, '	'));
 }
+type ActionType = PlantAction['type'];
 
+const LAST_DONE_FIELD = {
+	water: 'lastWatered',
+	fertilize: 'lastFertilized',
+	repot: 'lastRepotted',
+	prune: 'lastPruned',
+} as const satisfies Record<ActionType, keyof Plant>;
+
+/** ISO normalizzato in UTC, o undefined se la data non sta in piedi. */
+export function normalizeDate(value?: string | null): string | undefined {
+	if (!value) return undefined;
+	const time = new Date(value).getTime();
+	return Number.isFinite(time) ? new Date(time).toISOString() : undefined;
+}
+
+/**
+ * Riallinea `lastWatered` & co. allo storico azioni.
+ *
+ * Quelle date sono una copia denormalizzata dell'azione più recente: se una riga
+ * viene spostata nel tempo o cancellata, senza questo la scheda continuerebbe a
+ * mostrare un'irrigazione che non esiste più. Tocca solo i tipi passati, perché
+ * rinvaso e potatura si possono impostare a mano dalla scheda senza azione.
+ */
+function syncLastDone(plantId: string, types: ActionType[]) {
+	const plants = readPlants();
+	const index = plants.findIndex((p) => p.id === plantId);
+	if (index === -1) return;
+
+	const plant = plants[index];
+	for (const type of types) {
+		const latest = readActions()
+			.filter((a) => a.plantId === plantId && a.type === type)
+			.reduce<string | undefined>((max, a) => (max == null || a.date > max ? a.date : max), undefined);
+		const field = LAST_DONE_FIELD[type];
+		if (latest) plant[field] = latest;
+		else delete plant[field];
+	}
+	writePlants(plants);
+}
 export const store = {
 	getPlants: (): Plant[] => readPlants(),
 
@@ -123,7 +162,7 @@ export const store = {
 		return removed;
 	},
 
-	addAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', options?: PlantActionOptions): PlantAction | undefined => {
+	addAction: (plantId: string, type: ActionType, options?: PlantActionOptions): PlantAction | undefined => {
 		const plants = readPlants();
 		const plantIndex = plants.findIndex((p) => p.id === plantId);
 		if (plantIndex === -1) return undefined;
@@ -132,7 +171,7 @@ export const store = {
 			id: randomUUID(),
 			plantId,
 			type,
-			date: new Date().toISOString(),
+			date: normalizeDate(options?.date) ?? new Date().toISOString(),
 			notes: options?.notes,
 			amountMl: options?.amountMl,
 			amountGrams: options?.amountGrams,
@@ -141,28 +180,50 @@ export const store = {
 			source: type === 'water' ? options?.source : undefined,
 		};
 
-		switch (type) {
-			case 'water':
-				plants[plantIndex].lastWatered = action.date;
-				break;
-			case 'fertilize':
-				plants[plantIndex].lastFertilized = action.date;
-				break;
-			case 'repot':
-				plants[plantIndex].lastRepotted = action.date;
-				if (options?.potSizeCm != null) plants[plantIndex].potSizeCm = options.potSizeCm;
-				break;
-			case 'prune':
-				plants[plantIndex].lastPruned = action.date;
-				break;
+		if (type === 'repot' && options?.potSizeCm != null) {
+			plants[plantIndex].potSizeCm = options.potSizeCm;
+			writePlants(plants);
 		}
-		writePlants(plants);
 
 		const actions = readActions();
 		actions.push(action);
 		writeActions(actions);
+		syncLastDone(plantId, [type]);
 
 		return action;
+	},
+
+	updateAction: (id: string, patch: PlantActionPatch): PlantAction | undefined => {
+		const actions = readActions();
+		const index = actions.findIndex((a) => a.id === id);
+		if (index === -1) return undefined;
+
+		const updated: PlantAction = { ...actions[index] };
+		const date = normalizeDate(patch.date);
+		if (date) updated.date = date;
+		if (patch.notes !== undefined) updated.notes = patch.notes ?? undefined;
+		if (patch.amountMl !== undefined) updated.amountMl = patch.amountMl ?? undefined;
+		if (patch.amountGrams !== undefined) updated.amountGrams = patch.amountGrams ?? undefined;
+		if (patch.potSizeCm !== undefined) updated.potSizeCm = patch.potSizeCm ?? undefined;
+		// La provenienza descrive solo l'acqua, e la calibrazione la legge: su un rinvaso
+		// sarebbe rumore che finisce nello storico.
+		if (patch.source !== undefined && updated.type === 'water') updated.source = patch.source ?? undefined;
+
+		actions[index] = updated;
+		writeActions(actions);
+		syncLastDone(updated.plantId, [updated.type]);
+
+		return updated;
+	},
+
+	deleteAction: (id: string): PlantAction | undefined => {
+		const actions = readActions();
+		const index = actions.findIndex((a) => a.id === id);
+		if (index === -1) return undefined;
+		const [removed] = actions.splice(index, 1);
+		writeActions(actions);
+		syncLastDone(removed.plantId, [removed.type]);
+		return removed;
 	},
 
 	addHealthIssue: (plantId: string, issue: Omit<HealthIssue, 'id'>): HealthIssue | undefined => {
@@ -207,6 +268,8 @@ export const store = {
 	getActions: (plantId: string): PlantAction[] => {
 		return readActions().filter((a) => a.plantId === plantId);
 	},
+
+	getAction: (id: string): PlantAction | undefined => readActions().find((a) => a.id === id),
 
 	getAllActions: (): PlantAction[] => readActions(),
 };

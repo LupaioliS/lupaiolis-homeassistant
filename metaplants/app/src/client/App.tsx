@@ -4,6 +4,7 @@ import { api } from './api';
 import { PlantCard, isDoneToday } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { ActionDialog } from './components/ActionDialog';
+import { ActionHistory } from './components/ActionHistory';
 import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
 import { getIntervalForSeason, isOverdue } from './plantStatus';
@@ -24,6 +25,7 @@ export function App() {
 	const [searchTerm, setSearchTerm] = useState('');
 	const [sortBy, setSortBy] = useState<SortOption>('name');
 	const [soilWaterQueue, setSoilWaterQueue] = useState<Plant[]>([]);
+	const [showHistory, setShowHistory] = useState(false);
 	// Ref keeps SSE handler (captured with [] deps) in sync with current plants state
 	const plantsRef = useRef<Plant[]>([]);
 	useEffect(() => { plantsRef.current = plants; }, [plants]);
@@ -101,6 +103,10 @@ export function App() {
 					}
 				} else if (data.type === 'plant-readings') {
 					setReadings((prev) => ({ ...prev, [data.plantId]: data.readings }));
+				} else if (data.type === 'actions-changed') {
+					// Una riga corretta dalla tabella storico cambia i suggerimenti stagionali
+					// e le ultime quantità usate, che vivono qui e non nel payload della pianta.
+					loadPlants();
 				}
 			} catch { /* ignore parse errors */ }
 		};
@@ -209,6 +215,18 @@ export function App() {
 		return (a.nickname || a.name).localeCompare(b.nickname || b.name);
 	});
 
+	if (showHistory) {
+		return (
+			<div className="app">
+				<header>
+					<h1>🌱 {t('app.title')}</h1>
+					<p style={{ color: '#16a34a', marginTop: 4 }}>{t('history.title')}</p>
+				</header>
+				<ActionHistory plants={plants} onBack={() => setShowHistory(false)} onChanged={loadPlants} />
+			</div>
+		);
+	}
+
 	return (
 		<div className="app">
 			<header>
@@ -216,7 +234,10 @@ export function App() {
 				<p style={{ color: '#16a34a', marginTop: 4 }}>{t('app.subtitle')}</p>
 			</header>
 
-			<div style={{ marginBottom: 20, textAlign: 'right' }}>
+			<div style={{ marginBottom: 20, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+				<button className="btn btn-secondary" onClick={() => setShowHistory(true)}>
+					{t('history.open')}
+				</button>
 				<button className="btn btn-primary" onClick={() => setShowForm(true)}>
 					{t('app.addPlant')}
 				</button>
