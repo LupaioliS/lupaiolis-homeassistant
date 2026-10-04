@@ -271,7 +271,7 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	fastify.get('/readings', async () => getAllReadings());
 
 	// Storico letture di una pianta, per il grafico sulla scheda. Finora la curva
-	// esisteva solo lato server (history.json): il client vedeva un numero e doveva
+	// esisteva solo lato server (history.ts): il client vedeva un numero e doveva
 	// fidarsi. Si carica solo quando il grafico viene aperto, non ad ogni scheda.
 	fastify.get<{ Params: { id: string }; Querystring: { days?: string; series?: string } }>(
 		'/plants/:id/history',

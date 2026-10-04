@@ -50,7 +50,7 @@ export interface PlantSensors {
 	// Ultimo salto rilevato: evita di richiedere conferma due volte per la stessa
 	// irrigazione mentre il terreno è ancora bagnato.
 	lastSoilJumpAt?: string;
-	// Deprecati: lo storico letture vive in history.json (vedi server/history.ts), che
+	// Deprecati: lo storico letture vive in history.db (vedi server/history.ts), che
 	// tiene giorni di dati invece di 10 campioni e non riscrive plants.json ad ogni poll.
 	// Restano solo per migrare i dati salvati dalle versioni <= 1.9.3.
 	temperatureHistory?: number[];
@@ -59,7 +59,7 @@ export interface PlantSensors {
 }
 
 /**
- * Un campione dello storico sensori (history.json, vedi server/history.ts).
+ * Un campione dello storico sensori (history.db, vedi server/history.ts).
  * Vive qui perché la scheda ne disegna la curva: il grafico è client, i dati server.
  */
 export interface SensorSample {

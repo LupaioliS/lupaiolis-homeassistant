@@ -117,7 +117,7 @@ async function readPlant(plant: Plant): Promise<void> {
 	if (soilValue == null || !s?.soilHumidity) return;
 
 	// plants.json viene riscritto solo quando cambia qualcosa di persistente:
-	// lo storico ora vive in history.json, quindi il poll normale non tocca il disco.
+	// lo storico ora vive in history.db (history.ts), quindi il poll normale non tocca il disco.
 	const jumped = detectJump(plant, soilValue, now);
 	const baselineChanged = s.lastSoilHumidity == null || Math.abs(s.lastSoilHumidity - soilValue) >= 1;
 	if (!jumped && !baselineChanged) return;
@@ -165,7 +165,7 @@ export function refreshPrediction(plant: Plant): void {
 }
 
 /**
- * Porta in history.json i 10 campioni per sensore che le versioni <= 1.9.3
+ * Porta nello storico (history.ts) i 10 campioni per sensore che le versioni <= 1.9.3
  * tenevano dentro plants.json, e ripulisce i campi ormai inutilizzati.
  */
 export function migrateLegacySensorHistory(): void {

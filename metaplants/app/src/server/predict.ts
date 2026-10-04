@@ -168,6 +168,26 @@ interface CycleObservation {
 	wet: number | null;
 }
 
+/** Primo indice con `t >= time`; la serie è in ordine cronologico. */
+function lowerBound(samples: Sample[], time: number): number {
+	let lo = 0;
+	let hi = samples.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >>> 1;
+		if (samples[mid].t < time) lo = mid + 1;
+		else hi = mid;
+	}
+	return lo;
+}
+
+/**
+ * I campioni fra `from` e `to` inclusi. Con ~60 giorni di storico un `filter`
+ * per ogni irrigazione registrata, ad ogni poll, era la parte costosa del modello.
+ */
+function sliceByTime(samples: Sample[], from: number, to: number): Sample[] {
+	return samples.slice(lowerBound(samples, from), lowerBound(samples, to + 1));
+}
+
 /** Secco e bagnato visti attorno a un'irrigazione, prima di sapere chi ha dato l'acqua. */
 interface RawObservation {
 	dry: number | null;
@@ -186,7 +206,7 @@ function observeWatering(soil: Sample[], w: number, riseDelta?: number): RawObse
 	// innaffiato?" l'azione viene salvata quando il sensore è GIÀ salito, e la
 	// conferma può arrivare ore dopo. Perciò si guarda dentro una finestra ampia
 	// attorno a w invece di fidarsi dell'orario esatto.
-	const around = soil.filter((s) => s.t >= w - ACTION_LAG_MS && s.t <= w + WET_PEAK_WINDOW_MS);
+	const around = sliceByTime(soil, w - ACTION_LAG_MS, w + WET_PEAK_WINDOW_MS);
 	if (around.length === 0) return null;
 
 	// Dentro la finestra si cerca DOVE è arrivata l'acqua, cioè la risalita nella
@@ -241,7 +261,7 @@ function observeCycles(soil: Sample[], waterings: WateringEvent[], riseDelta?: n
  * Come `observeCycles`, ma per le irrigazioni ormai uscite dallo storico usa
  * quello che il sensore aveva visto allora (history.ts, archivio calibrazione).
  *
- * Lo storico grezzo dura ~14 giorni: una pianta che si bagna una volta al mese
+ * Lo storico grezzo dura ~60 giorni: una pianta che si bagna più di rado
  * perdeva così tutte le osservazioni tranne l'ultima, la scala ripiegava sulla
  * soglia manuale (o spariva) e la % risaliva da sola. Una volta chiusa la
  * finestra dell'irrigazione l'osservazione non cambia più, quindi si può

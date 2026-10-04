@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.13.0
+
+Sensor history moves from `history.json` to **SQLite** (`history.db`, same `/data` folder, so it's still in Home Assistant backups), and the soil history now covers **~60 days** instead of ~14.
+
+- The reason is the SD card. With 60 days of soil readings the JSON file was 100–150 KB per plant, rewritten in full every 15 minutes to add a handful of samples — on a Raspberry that's exactly the wear the separate history file existed to avoid. Now each save writes only the buckets that changed: measured with 10 plants and full history, **~36 KB per save instead of ~1 MB**
+- Rows are keyed by time first, so new readings from every plant land in the last pages of the file and pruned ones in the first; keyed by plant, the same save touched one page per plant and series (~140 KB)
+- Only the history moved. `plants.json` and `actions.json` change when you press a button, not on a timer, and stay as they are
+- SQLite is built into Node 24 (`node:sqlite`): no new dependency, nothing native to compile for ARM, no extra process. The log shows a one-line "experimental feature" warning at startup; it's harmless
+- **Migration is automatic**: on first start an existing `history.json` (readings and calibration archive) is imported and renamed to `history.json.migrated`, which you can delete once you're happy. Downgrading afterwards starts older versions with an empty history
+- The working copy stays in memory, as before: the database is only where history survives restarts, and isn't queried while running. Saves still happen every 15 minutes and on shutdown, so a power cut loses at most the last 15 minutes, as before
+- With four times the history, the estimate no longer scans all of it for every logged watering on every poll: the window around each watering is found by binary search
+
 ## 1.12.1
 
 Plants watered **once a month no longer lose their scale**. Raw soil readings are kept for about two weeks, and the calibration was rebuilt from them on every poll — so a watering older than that simply vanished: the 0% point fell back to the manual threshold or to "—", and with it the percentage drifted back up on its own.

@@ -153,7 +153,7 @@ Gaps break the line rather than being bridged across, so a sensor that dropped
 offline looks offline instead of looking like a smooth reading. The history is
 only fetched when you open the chart, so it costs nothing on plants you don't
 open. It's served by `GET /api/plants/<id>/history?days=<n>&series=soil|temp|hum`
-(temperature and ambient humidity keep ~2 days, soil ~14).
+(temperature and ambient humidity keep ~2 days, soil ~60).
 
 ### Who gave the water
 
@@ -234,10 +234,10 @@ It learns two things from the soil sensor plus your watering history:
   ever confirming it and the calibrated reading stays at 0% and keeps asking,
   which is what the prompt is there to catch.
 
-  Raw readings are kept for about two weeks, but the scale isn't lost with them:
+  Raw readings are kept for about two months, but the scale isn't lost with them:
   once a watering's window has closed, its low and its peak are archived on
-  their own (two numbers per watering, in `history.json`). A plant watered once
-  a month keeps its 0% and 100% points between waterings instead of falling
+  their own (two numbers per watering, in `history.db`). A plant watered rarely
+  keeps its 0% and 100% points between waterings instead of falling
   back to the manual threshold — and its percentage no longer creeps back up as
   the old readings expire.
 - **How fast it dries.** A linear fit over the readings since the last watering
