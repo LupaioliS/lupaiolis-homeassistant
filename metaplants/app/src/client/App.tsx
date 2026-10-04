@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Plant, PlantAction, PlantReadings, WaterSource } from '../shared/types';
+import type { Plant, PlantAction, PlantReadings, WaterAmount, WaterSource } from '../shared/types';
 import { api } from './api';
 import { PlantCard, isDoneToday } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
-import { ActionDialog } from './components/ActionDialog';
+import { ActionDialog, type ActionDialogResult } from './components/ActionDialog';
 import { ActionHistory } from './components/ActionHistory';
 import { AttentionSettings } from './components/AttentionSettings';
 import { PlantNavigator, type PlantNeeds } from './components/PlantNavigator';
@@ -11,6 +11,7 @@ import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
 import { getIntervalForSeason, isOverdue } from './plantStatus';
 import { assessWater } from './waterStatus';
+import { adviseAmount } from './waterAmount';
 import { loadAttentionPrefs, saveAttentionPrefs, type AttentionPrefs } from './attentionPrefs';
 import { BASE_PATH } from './basePath';
 
@@ -172,16 +173,16 @@ export function App() {
 		setPlants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
 	}, []);
 
-	const handleWater = async (id: string, amountMl: number | undefined, source?: WaterSource) => {
+	const handleWater = async (id: string, amount: WaterAmount | undefined, source?: WaterSource) => {
 		const now = new Date().toISOString();
 		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastWatered: now } : p)));
-		api.logAction(id, 'water', { amountMl, source }).catch(loadPlants);
+		api.logAction(id, 'water', { amount, source }).catch(loadPlants);
 	};
 
-	const handleSoilQueueConfirm = async (amountMl: number | undefined, source?: WaterSource) => {
+	const handleSoilQueueConfirm = async ({ amount, source }: ActionDialogResult) => {
 		const plant = soilWaterQueue[0];
 		if (!plant) return;
-		await handleWater(plant.id, amountMl, source);
+		await handleWater(plant.id, amount, source);
 		api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
 		setSoilWaterQueue((prev) => prev.slice(1));
 	};
@@ -394,7 +395,8 @@ export function App() {
 								onClick={() => goToPlant(plant.id)}
 							>
 								<strong>{plant.nickname || plant.name}</strong>
-								{needsWater && <span className="attention-banner-tag">💧</span>}
+								{/* Senza sensore del terreno la pianta non chiede acqua: chiede di toccare il terreno. */}
+							{needsWater && <span className="attention-banner-tag">{plant.sensors?.soilHumidity ? '💧' : '👆'}</span>}
 								{needsFertilize && <span className="attention-banner-tag">🧪</span>}
 								{activeIssueCount > 0 && <span className="attention-banner-tag">🏥</span>}
 							</li>
@@ -465,7 +467,7 @@ export function App() {
 							readings={readings[plant.id]}
 							actions={actionsByPlant[plant.id]}
 							anchorId={cardAnchorId(plant.id)}
-							onWater={(amountMl, source) => handleWater(plant.id, amountMl, source)}
+							onWater={(amount, source) => handleWater(plant.id, amount, source)}
 							onFertilize={(amountGrams) => handleFertilize(plant.id, amountGrams)}
 							onEdit={() => handleEdit(plant)}
 							onRefresh={loadPlants}
@@ -481,6 +483,11 @@ export function App() {
 					plant={soilWaterQueue[0]}
 					titleOverride={t('actions.soilJumpTitle')}
 					subtitle={t('actions.soilJumpPrompt').replace('{name}', soilWaterQueue[0].nickname || soilWaterQueue[0].name)}
+					defaultAmount={adviseAmount(
+						actionsByPlant[soilWaterQueue[0].id],
+						readings[soilWaterQueue[0].id]?.prediction,
+						soilWaterQueue[0].lastWatered,
+					).suggested}
 					onConfirm={handleSoilQueueConfirm}
 					onClose={handleSoilQueueSkip}
 				/>

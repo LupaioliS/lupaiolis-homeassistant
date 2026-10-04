@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.14.0
+
+**Finger test** for plants without a soil sensor. A calendar only guesses: when such a plant comes due, the card now says **👆 Touch the soil** instead of "water", with three answers.
+
+- **Dry** logs the watering at once, with the usual amount — you're in front of the plant, one tap is enough
+- **Moist** postpones the next check by 25% of the watering interval, **wet** by 50% (at least a day): a basil every 2 days is checked again tomorrow, a plant every 17 days in 4
+- The 👆 button among the actions opens the test before the plant is due; the "needs attention" banner shows 👆 for these plants
+- Checks are a new action type (`check`), listed and editable in the history table like any other row. The latest one is mirrored on the plant as `lastSoilCheck`, the same way `lastWatered` mirrors waterings, so the card and MQTT compute the postponement from the plant alone: the `watering` state and `watering_next` move with it, and the attributes gain `last_soil_check`
+- The seasonal frequency isn't changed behind your back: since moist soil delays the watering, the gaps between waterings stretch to fit the plant and the existing 💡 suggestion follows them
+
+**How much water** is now **a little / normal / a lot** instead of a millilitre slider. Nobody measures the water they pour, and the ml in the history were almost always the slider's default.
+
+- The dialog proposes the amount you used last time
+- With a soil sensor, the card says how the last watering went against the plant's learned "full" (*soil at 96% of full — that was enough* / *only at 61% — more next time*), and the next dialog proposes one level more when it wasn't enough. Each calibration cycle carries its amount and `fill`, the level it reached on the plant's scale
+- Old waterings keep their ml, shown read-only in the history table; their feedback is shown but doesn't change the proposal, since "more" than an unknown amount means nothing. The `amountMl` field stays readable through the API and is no longer asked for
+
 ## 1.13.0
 
 Sensor history moves from `history.json` to **SQLite** (`history.db`, same `/data` folder, so it's still in Home Assistant backups), and the soil history now covers **~60 days** instead of ~14.

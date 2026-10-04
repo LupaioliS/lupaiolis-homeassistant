@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Plant, PlantAction, WaterSource, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings, WateringPrediction } from '../../shared/types';
+import type { Plant, PlantAction, WaterSource, WaterAmount, SoilFeel, HealthIssue, HealthIssueType, PestType, DiseaseType, FungusType, SeasonalSchedule, PlantReadings, WateringPrediction } from '../../shared/types';
 import { t } from '../i18n';
 import { api } from '../api';
 import { computeSeasonalSuggestions, getCurrentSeason } from '../season';
-import { describeDue, getIntervalForSeason, DAY_MS } from '../plantStatus';
-import { assessWater, isPredictionDueNow } from '../waterStatus';
+import { describeDue, getIntervalForSeason, DAY_MS, type DueInfo } from '../plantStatus';
+import { assessWater, isPredictionDueNow, needsFingerTest } from '../waterStatus';
+import { adviseAmount, WATER_AMOUNT_EMOJI } from '../waterAmount';
 import { withBase } from '../basePath';
-import { ActionDialog, type ActionDialogType } from './ActionDialog';
+import { ActionDialog, type ActionDialogType, type ActionDialogResult } from './ActionDialog';
 import { WaterSplashEffect, DROPLET_FALL_DURATION_S, DROPLET_STAGGER_S, DROPLET_ARRIVAL_FRACTION, type SplashTarget } from './WaterSplashEffect';
 import { WaterFillOverlay, FILL_DURATION_MS, type FillTarget } from './WaterFillOverlay';
 import { FertilizeSproutEffect, SPROUT_DURATION_MS } from './FertilizeSproutEffect';
@@ -19,7 +20,7 @@ interface PlantCardProps {
 	actions?: PlantAction[];
 	/** id del DOM a cui scorre la barra delle piante in cima. */
 	anchorId?: string;
-	onWater: (amountMl: number | undefined, source?: WaterSource) => void | Promise<void>;
+	onWater: (amount: WaterAmount | undefined, source?: WaterSource) => void | Promise<void>;
 	onFertilize: (amountGrams: number) => void | Promise<void>;
 	onEdit: () => void;
 	onRefresh: () => void;
@@ -57,7 +58,10 @@ function getSoilHumidityStyle(value: number, dryReference: number, wetReference?
 }
 
 function getStatus(lastAction: string | undefined, intervalDays: number): { overdue: boolean; label: string; dueAt: number | null } {
-	const due = describeDue(lastAction, intervalDays);
+	return statusFromDue(describeDue(lastAction, intervalDays));
+}
+
+function statusFromDue(due: DueInfo): { overdue: boolean; label: string; dueAt: number | null } {
 	if (due.dueAt === null) return { overdue: true, label: t('status.neverDone'), dueAt: null };
 
 	if (due.overdue) {
@@ -282,6 +286,8 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 	const [localActions, setLocalActions] = useState<PlantAction[]>([]);
 	// Pillola di cui è aperto il pannello dei dettagli (equivalente al tooltip, ma toccabile).
 	const [openInfo, setOpenInfo] = useState<string | null>(null);
+	// Prova del dito aperta a mano, anche prima della scadenza: si è davanti alla pianta.
+	const [showCheck, setShowCheck] = useState(false);
 	// Il grafico si monta (e quindi scarica lo storico) solo quando viene aperto:
 	// altrimenti sarebbe una richiesta per scheda ad ogni caricamento della pagina.
 	const [showChart, setShowChart] = useState(false);
@@ -307,7 +313,10 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 	const soilNeedsWater = water.soilNeedsWater;
 	// % sulla scala della pianta: quando c'è è lei a comandare, e la grezza scala a margine.
 	const normalizedSoil = water.soil.normalized;
-	const scheduleStatus = getStatus(plant.lastWatered, water.intervalDays);
+	const scheduleStatus = statusFromDue(water.due);
+	// Senza sensore del terreno il calendario non dice "innaffia" ma "tocca il terreno".
+	const fingerTest = needsFingerTest(plant, water);
+	const lastCheck = water.due.check;
 
 	// Finché la stima non ha imparato abbastanza resta a margine: qui comanda solo
 	// quando assessWater la promuove (confidence alta).
@@ -319,11 +328,21 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 		}
 		: water.source === 'prediction' && prediction
 			? { overdue: water.overdue, label: `🧠 ${formatPredictionEta(prediction)}`, dueAt: scheduleStatus.dueAt }
-			: scheduleStatus;
+			: fingerTest
+				? { ...scheduleStatus, label: t('check.prompt') }
+				: lastCheck
+					? { ...scheduleStatus, label: `${t('check.recheck')} ${scheduleStatus.label}` }
+					: scheduleStatus;
+	const waterIcon = water.source === 'schedule' && !soilNeedsWater && (fingerTest || lastCheck) ? '👆' : '💧';
 
 	const waterInfo = [
 		...(water.source === 'prediction' && prediction ? buildPredictionInfo(prediction) : []),
 		...(scheduleStatus.dueAt != null ? [`${t('status.scheduleDue')}: ${formatDateTime(scheduleStatus.dueAt)}`] : []),
+		...(lastCheck
+			? [t('check.lastCheck')
+				.replace('{soil}', t(`check.${lastCheck.soil}`).toLowerCase())
+				.replace('{date}', formatShortDateTime(new Date(lastCheck.date).getTime()))]
+			: []),
 	];
 	const fertInfo = fertStatus.dueAt != null
 		? [`${t('status.scheduleDue')}: ${formatDateTime(fertStatus.dueAt)}`]
@@ -389,11 +408,16 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 		const match = [...allActions].reverse().find((a) => a.type === type && a[field] != null);
 		return match ? (match[field] as number) : null;
 	};
-	const lastWaterMl = lastOfType('water', 'amountMl');
+	// Quanta acqua proporre, e — col sensore — se l'ultima dose bastava.
+	const amountAdvice = adviseAmount(allActions, prediction, plant.lastWatered);
+	const amountFeedback = amountAdvice.feedback;
+	const amountHint = amountFeedback
+		? t(amountFeedback.enough ? 'amount.hintEnough' : 'amount.hintMore').replace('{fill}', String(amountFeedback.fill))
+		: null;
 	const lastFertGrams = lastOfType('fertilize', 'amountGrams');
 	const lastPotSizeCm = lastOfType('repot', 'potSizeCm');
 
-	const rememberAction = (type: PlantAction['type'], options: { amountMl?: number; amountGrams?: number; potSizeCm?: number; source?: WaterSource } = {}) => {
+	const rememberAction = (type: PlantAction['type'], options: { amount?: WaterAmount; amountGrams?: number; potSizeCm?: number; source?: WaterSource; soil?: SoilFeel } = {}) => {
 		setLocalActions((prev) => [...prev, {
 			id: `local-${Date.now()}`,
 			plantId: plant.id,
@@ -479,12 +503,14 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 		setTimeout(() => setSproutTargets([]), SPROUT_DURATION_MS);
 	};
 
-	const handleDialogConfirm = async (value: number | undefined, source?: WaterSource) => {
-		if (activeDialog === 'water') {
-			rememberAction('water', { amountMl: value, source });
-			await onWater(value, source);
-			launchWaterDroplets();
-		}
+	const waterNow = async (amount: WaterAmount | undefined, source?: WaterSource) => {
+		rememberAction('water', { amount, source });
+		await onWater(amount, source);
+		launchWaterDroplets();
+	};
+
+	const handleDialogConfirm = async ({ value, amount, source }: ActionDialogResult) => {
+		if (activeDialog === 'water') await waterNow(amount, source);
 		else if (activeDialog === 'fertilize') {
 			rememberAction('fertilize', { amountGrams: value });
 			await onFertilize(value ?? 0);
@@ -492,6 +518,21 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 		}
 		else if (activeDialog === 'repot') await handleRepot(value ?? 0);
 		setActiveDialog(null);
+	};
+
+	// Prova del dito. "Asciutto" è un'irrigazione, con la quantità di sempre: si è
+	// davanti alla pianta con l'acqua in mano, un tocco deve bastare. "Umido" e
+	// "bagnato" rimandano il prossimo controllo (shared/schedule.ts).
+	const handleFingerTest = async (feel: SoilFeel | 'dry') => {
+		setShowCheck(false);
+		if (feel === 'dry') {
+			await waterNow(amountAdvice.suggested, 'manual');
+			return;
+		}
+		const date = new Date().toISOString();
+		rememberAction('check', { soil: feel });
+		onPatch({ ...plant, lastSoilCheck: { date, soil: feel } });
+		api.logAction(plant.id, 'check', { soil: feel }).catch(onRefresh);
 	};
 
 	const handlePrune = async () => {
@@ -611,7 +652,7 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 					openId={openInfo}
 					onToggle={setOpenInfo}
 				>
-					💧 {waterStatus.label}
+					{waterIcon} {waterStatus.label}
 				</InfoPill>
 				<InfoPill
 					id="fert"
@@ -624,6 +665,24 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 					🧪 {fertStatus.label}
 				</InfoPill>
 			</div>
+
+			{(fingerTest || showCheck) && (
+				<div className="finger-test">
+					<div className="finger-test-question">👆 {t('check.question')}</div>
+					<div className="finger-test-options">
+						<button type="button" className="btn btn-water" onClick={() => handleFingerTest('dry')}>
+							🏜️ {t('check.dry')}
+						</button>
+						<button type="button" className="btn btn-secondary" onClick={() => handleFingerTest('moist')}>
+							🌱 {t('check.moist')}
+						</button>
+						<button type="button" className="btn btn-secondary" onClick={() => handleFingerTest('wet')}>
+							🌊 {t('check.wet')}
+						</button>
+					</div>
+					<small className="finger-test-explain">{t('check.explain')}</small>
+				</div>
+			)}
 
 			{readings && (readings.temperature !== null || readings.ambientHumidity !== null) && (
 				<div className="status">
@@ -678,6 +737,14 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 					>
 						📈
 					</button>
+				</div>
+			)}
+
+			{amountFeedback && (
+				<div className={`amount-feedback ${amountFeedback.enough ? 'enough' : 'more'}`}>
+					{t(amountFeedback.enough ? 'amount.feedbackEnough' : 'amount.feedbackMore')
+						.replace('{emoji}', amountFeedback.amount ? WATER_AMOUNT_EMOJI[amountFeedback.amount] : '💧')
+						.replace('{fill}', String(amountFeedback.fill))}
 				</div>
 			)}
 
@@ -775,6 +842,17 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 				<div ref={fertButtonRef} className="action-btn-measure-wrap">
 					<ActionButton disabled={isDoneToday(plant.lastFertilized)} className="btn btn-fertilize" onClick={() => setActiveDialog('fertilize')} label={`🧪 ${t('actions.fertilize')}`} />
 				</div>
+				{!plant.sensors?.soilHumidity && !fingerTest && (
+					<button
+						type="button"
+						className={`btn btn-secondary ${showCheck ? 'active' : ''}`}
+						onClick={() => setShowCheck((v) => !v)}
+						title={t('actions.check')}
+						aria-expanded={showCheck}
+					>
+						👆
+					</button>
+				)}
 				<ActionButton disabled={isDoneToday(plant.lastRepotted)} className="btn btn-secondary" onClick={() => setActiveDialog('repot')} label={`🪴 ${t('actions.repot')}`} />
 				<ActionButton disabled={isDoneToday(plant.lastPruned)} className="btn btn-secondary" onClick={handlePrune} label={`✂️ ${t('actions.prune')}`} />
 				<button className="btn btn-secondary" onClick={onEdit}>✏️</button>
@@ -868,10 +946,11 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 					type={activeDialog}
 					plant={plant}
 					defaultValue={
-						activeDialog === 'water' ? lastWaterMl ?? undefined
-						: activeDialog === 'fertilize' ? lastFertGrams ?? undefined
+						activeDialog === 'fertilize' ? lastFertGrams ?? undefined
 						: lastPotSizeCm ?? plant.potSizeCm ?? undefined
 					}
+					defaultAmount={amountAdvice.suggested}
+					amountHint={amountHint}
 					onConfirm={handleDialogConfirm}
 					onClose={() => setActiveDialog(null)}
 				/>

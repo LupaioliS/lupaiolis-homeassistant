@@ -81,7 +81,7 @@ const LAST_DONE_FIELD = {
 	fertilize: 'lastFertilized',
 	repot: 'lastRepotted',
 	prune: 'lastPruned',
-} as const satisfies Record<ActionType, keyof Plant>;
+} as const satisfies Record<Exclude<ActionType, 'check'>, keyof Plant>;
 
 /** ISO normalizzato in UTC, o undefined se la data non sta in piedi. */
 export function normalizeDate(value?: string | null): string | undefined {
@@ -105,6 +105,15 @@ function syncLastDone(plantId: string, types: ActionType[]) {
 
 	const plant = plants[index];
 	for (const type of types) {
+		if (type === 'check') {
+			// Oltre alla data serve l'esito: è lui a decidere di quanto si rimanda.
+			const latest = readActions()
+				.filter((a) => a.plantId === plantId && a.type === 'check' && a.soil)
+				.reduce<PlantAction | undefined>((max, a) => (max == null || a.date > max.date ? a : max), undefined);
+			if (latest?.soil) plant.lastSoilCheck = { date: latest.date, soil: latest.soil };
+			else delete plant.lastSoilCheck;
+			continue;
+		}
 		const latest = readActions()
 			.filter((a) => a.plantId === plantId && a.type === type)
 			.reduce<string | undefined>((max, a) => (max == null || a.date > max ? a.date : max), undefined);
@@ -173,11 +182,14 @@ export const store = {
 			type,
 			date: normalizeDate(options?.date) ?? new Date().toISOString(),
 			notes: options?.notes,
+			// Quantità e provenienza descrivono solo l'acqua, l'esito solo la prova del dito.
+			amount: type === 'water' ? options?.amount : undefined,
 			amountMl: options?.amountMl,
 			amountGrams: options?.amountGrams,
 			potSizeCm: options?.potSizeCm,
 			// Solo per l'acqua: sulle altre azioni non vuol dire niente.
 			source: type === 'water' ? options?.source : undefined,
+			soil: type === 'check' ? options?.soil : undefined,
 		};
 
 		if (type === 'repot' && options?.potSizeCm != null) {
@@ -202,7 +214,9 @@ export const store = {
 		const date = normalizeDate(patch.date);
 		if (date) updated.date = date;
 		if (patch.notes !== undefined) updated.notes = patch.notes ?? undefined;
+		if (patch.amount !== undefined && updated.type === 'water') updated.amount = patch.amount ?? undefined;
 		if (patch.amountMl !== undefined) updated.amountMl = patch.amountMl ?? undefined;
+		if (patch.soil !== undefined && updated.type === 'check') updated.soil = patch.soil;
 		if (patch.amountGrams !== undefined) updated.amountGrams = patch.amountGrams ?? undefined;
 		if (patch.potSizeCm !== undefined) updated.potSizeCm = patch.potSizeCm ?? undefined;
 		// La provenienza descrive solo l'acqua, e la calibrazione la legge: su un rinvaso

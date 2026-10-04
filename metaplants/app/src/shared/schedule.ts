@@ -1,4 +1,4 @@
-import type { Season, SeasonalSchedule } from './types';
+import type { Plant, Season, SeasonalSchedule, SoilFeel } from './types';
 
 export const HOUR_MS = 60 * 60 * 1000;
 export const DAY_MS = 24 * HOUR_MS;
@@ -110,4 +110,39 @@ export function describeDue(
 
 export function isOverdue(lastAction: string | undefined, intervalDays: number, now?: number): boolean {
 	return describeDue(lastAction, intervalDays, now).overdue;
+}
+
+/**
+ * Di quanto la prova del dito rimanda il prossimo controllo, in proporzione alla
+ * frequenza: un basilico ogni 2 giorni "umido" va ricontrollato domani, una
+ * Zamioculcas ogni 14 fra 4. Bagnato rimanda il doppio di umido.
+ */
+const CHECK_POSTPONE: Record<SoilFeel, number> = { moist: 0.25, wet: 0.5 };
+
+export function checkPostponeDays(intervalDays: number, soil: SoilFeel): number {
+	return Math.max(1, Math.round(intervalDays * CHECK_POSTPONE[soil]));
+}
+
+export interface WaterDue extends DueInfo {
+	/** Presente quando la scadenza viene da una prova del dito, non dall'irrigazione. */
+	check: Plant['lastSoilCheck'] | null;
+}
+
+/**
+ * Scadenza dell'acqua secondo il calendario: dall'ultima irrigazione, oppure
+ * dall'ultima prova del dito che ha trovato il terreno ancora umido, se è venuta
+ * dopo. Unico calcolo per scheda, banner e MQTT.
+ */
+export function describeWaterDue(
+	plant: Pick<Plant, 'lastWatered' | 'lastSoilCheck'>,
+	intervalDays: number,
+	now: number = Date.now(),
+): WaterDue {
+	const check = plant.lastSoilCheck;
+	const checkAt = check ? new Date(check.date).getTime() : NaN;
+	const wateredAt = plant.lastWatered ? new Date(plant.lastWatered).getTime() : -Infinity;
+	if (check && Number.isFinite(checkAt) && checkAt > wateredAt) {
+		return { ...describeDue(check.date, checkPostponeDays(intervalDays, check.soil), now), check };
+	}
+	return { ...describeDue(plant.lastWatered, intervalDays, now), check: null };
 }

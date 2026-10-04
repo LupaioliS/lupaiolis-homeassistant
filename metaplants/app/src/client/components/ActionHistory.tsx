@@ -1,25 +1,44 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import type { Plant, PlantAction, PlantActionOptions, PlantActionPatch, WaterSource } from '../../shared/types';
+import type { Plant, PlantAction, PlantActionOptions, PlantActionPatch, SoilFeel, WaterAmount, WaterSource } from '../../shared/types';
 import { api } from '../api';
 import { t, getLocale } from '../i18n';
+import { WATER_AMOUNTS, WATER_AMOUNT_EMOJI } from '../waterAmount';
 
 type ActionType = PlantAction['type'];
 
-const ACTION_TYPES: ActionType[] = ['water', 'fertilize', 'repot', 'prune'];
+const ACTION_TYPES: ActionType[] = ['water', 'fertilize', 'repot', 'prune', 'check'];
 const WATER_SOURCES: WaterSource[] = ['manual', 'rain', 'irrigation'];
+const SOIL_FEELS: SoilFeel[] = ['moist', 'wet'];
 
-const TYPE_EMOJI: Record<ActionType, string> = { water: '💧', fertilize: '🧪', repot: '🪴', prune: '✂️' };
+const TYPE_EMOJI: Record<ActionType, string> = { water: '💧', fertilize: '🧪', repot: '🪴', prune: '✂️', check: '👆' };
+const SOIL_EMOJI: Record<SoilFeel, string> = { moist: '🌱', wet: '🌊' };
 const SOURCE_EMOJI: Record<WaterSource, string> = { manual: '💧', rain: '🌧️', irrigation: '🚿' };
 
-/** Dove finisce la quantità: ogni tipo ne ha una sola, la potatura nessuna. */
+/**
+ * Dove finisce una quantità numerica. L'acqua non ne ha più una (poca / normale /
+ * tanta, campo `amount`), la prova del dito ha un esito, la potatura niente.
+ */
 const AMOUNT_FIELD = {
-	water: 'amountMl',
+	water: null,
 	fertilize: 'amountGrams',
 	repot: 'potSizeCm',
 	prune: null,
-} as const satisfies Record<ActionType, 'amountMl' | 'amountGrams' | 'potSizeCm' | null>;
+	check: null,
+} as const satisfies Record<ActionType, 'amountGrams' | 'potSizeCm' | null>;
 
-const AMOUNT_UNIT: Record<ActionType, string> = { water: 'ml', fertilize: 'g', repot: 'cm', prune: '' };
+const AMOUNT_UNIT: Record<ActionType, string> = { water: '', fertilize: 'g', repot: 'cm', prune: '', check: '' };
+
+/** La colonna quantità/esito in sola lettura. I ml delle irrigazioni vecchie restano visibili. */
+function amountLabel(action: PlantAction): string {
+	if (action.type === 'water') {
+		if (action.amount) return `${WATER_AMOUNT_EMOJI[action.amount]} ${t(`amount.${action.amount}`)}`;
+		return action.amountMl != null ? `${action.amountMl} ml` : '—';
+	}
+	if (action.type === 'check') return action.soil ? `${SOIL_EMOJI[action.soil]} ${t(`check.${action.soil}`)}` : '—';
+	const field = AMOUNT_FIELD[action.type];
+	const amount = field ? action[field] : undefined;
+	return amount == null ? '—' : `${amount} ${AMOUNT_UNIT[action.type]}`;
+}
 
 interface Draft {
 	plantId: string;
@@ -27,6 +46,10 @@ interface Draft {
 	/** Valore di un <input type="datetime-local">, quindi ora locale senza fuso. */
 	date: string;
 	amount: string;
+	/** Solo acqua: '' = non registrata. */
+	level: WaterAmount | '';
+	/** Solo prova del dito. */
+	soil: SoilFeel;
 	source: WaterSource;
 	notes: string;
 }
@@ -53,7 +76,6 @@ function parseAmount(value: string): number | null {
 /** `null` svuota il campo: da tabella un input vuoto vuole dire "cancellalo". */
 function amountPatch(type: ActionType, amount: number | null): PlantActionPatch {
 	switch (type) {
-		case 'water': return { amountMl: amount };
 		case 'fertilize': return { amountGrams: amount };
 		case 'repot': return { potSizeCm: amount };
 		default: return {};
@@ -63,7 +85,6 @@ function amountPatch(type: ActionType, amount: number | null): PlantActionPatch 
 function amountOptions(type: ActionType, amount: number | null): PlantActionOptions {
 	if (amount == null) return {};
 	switch (type) {
-		case 'water': return { amountMl: amount };
 		case 'fertilize': return { amountGrams: amount };
 		case 'repot': return { potSizeCm: amount };
 		default: return {};
@@ -78,6 +99,8 @@ function draftOf(action: PlantAction): Draft {
 		type: action.type,
 		date: toLocalInput(action.date),
 		amount: amount == null ? '' : String(amount),
+		level: action.amount ?? '',
+		soil: action.soil ?? 'moist',
 		source: action.source ?? 'manual',
 		notes: action.notes ?? '',
 	};
@@ -152,7 +175,8 @@ export function ActionHistory({ plants, onBack, onChanged }: ActionHistoryProps)
 			date,
 			notes: draft.notes.trim() || null,
 			...amountPatch(draft.type, parseAmount(draft.amount)),
-			...(draft.type === 'water' ? { source: draft.source } : {}),
+			...(draft.type === 'water' ? { source: draft.source, amount: draft.level || null } : {}),
+			...(draft.type === 'check' ? { soil: draft.soil } : {}),
 		};
 
 		setBusy(true);
@@ -190,6 +214,8 @@ export function ActionHistory({ plants, onBack, onChanged }: ActionHistoryProps)
 			type: (typeFilter || 'water') as ActionType,
 			date: toLocalInput(new Date().toISOString()),
 			amount: '',
+			level: 'normal',
+			soil: 'moist',
 			source: 'manual',
 			notes: '',
 		});
@@ -206,7 +232,8 @@ export function ActionHistory({ plants, onBack, onChanged }: ActionHistoryProps)
 				date,
 				notes: newRow.notes.trim() || undefined,
 				...amountOptions(newRow.type, parseAmount(newRow.amount)),
-				...(newRow.type === 'water' ? { source: newRow.source } : {}),
+				...(newRow.type === 'water' ? { source: newRow.source, amount: newRow.level || undefined } : {}),
+				...(newRow.type === 'check' ? { soil: newRow.soil } : {}),
 			});
 			setNewRow(null);
 			await load();
@@ -250,6 +277,21 @@ export function ActionHistory({ plants, onBack, onChanged }: ActionHistoryProps)
 				)}
 			</td>
 			<td>
+				{value.type === 'water' && (
+					<select value={value.level} onChange={(e) => set({ ...value, level: e.target.value as WaterAmount | '' })}>
+						<option value="">—</option>
+						{WATER_AMOUNTS.map((level) => (
+							<option key={level} value={level}>{WATER_AMOUNT_EMOJI[level]} {t(`amount.${level}`)}</option>
+						))}
+					</select>
+				)}
+				{value.type === 'check' && (
+					<select value={value.soil} onChange={(e) => set({ ...value, soil: e.target.value as SoilFeel })}>
+						{SOIL_FEELS.map((soil) => (
+							<option key={soil} value={soil}>{SOIL_EMOJI[soil]} {t(`check.${soil}`)}</option>
+						))}
+					</select>
+				)}
 				{AMOUNT_FIELD[value.type] && (
 					<span className="history-amount-edit">
 						<input
@@ -338,8 +380,6 @@ export function ActionHistory({ plants, onBack, onChanged }: ActionHistoryProps)
 								</tr>
 							)}
 							{visible.map((action) => {
-								const field = AMOUNT_FIELD[action.type];
-								const amount = field ? action[field] : undefined;
 								return editingId === action.id && draft ? (
 									<tr key={action.id} className="history-row-editing">
 										{renderEditor(draft, setDraft, false)}
@@ -353,7 +393,7 @@ export function ActionHistory({ plants, onBack, onChanged }: ActionHistoryProps)
 										<td>{new Date(action.date).toLocaleString(getLocale())}</td>
 										<td>{plantName(action.plantId)}</td>
 										<td>{TYPE_EMOJI[action.type]} {t(`actions.${action.type}`)}</td>
-										<td>{amount == null ? '—' : `${amount} ${AMOUNT_UNIT[action.type]}`}</td>
+										<td>{amountLabel(action)}</td>
 										<td>
 											{action.type === 'water'
 												? `${SOURCE_EMOJI[action.source ?? 'manual']} ${t(`actions.source_${action.source ?? 'manual'}`)}`

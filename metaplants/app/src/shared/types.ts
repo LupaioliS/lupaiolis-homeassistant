@@ -97,6 +97,13 @@ export interface CalibrationObservation {
 	wet: number | null;
 	/** Chi ha dato l'acqua, se registrato: spiega un ciclo fuori scala. */
 	source?: WaterSource;
+	/** Quanta acqua, se registrato: con `fill` dice se la dose bastava. */
+	amount?: WaterAmount;
+	/**
+	 * Fin dove è arrivato il terreno, sulla scala della pianta (0-100): 100 = al
+	 * livello del "pieno" imparato. Assente finché la scala non c'è.
+	 */
+	fill?: number | null;
 }
 
 /**
@@ -206,6 +213,13 @@ export interface Plant {
 	lastFertilized?: string;
 	lastRepotted?: string;
 	lastPruned?: string;
+	/**
+	 * Ultima prova del dito che ha trovato il terreno ancora umido o bagnato, se è
+	 * più recente dell'ultima irrigazione. Copia denormalizzata delle azioni `check`
+	 * (come lastWatered per `water`), così scheda e MQTT calcolano il rinvio senza
+	 * leggere lo storico.
+	 */
+	lastSoilCheck?: SoilCheck;
 	purchaseDate?: string;
 	recommendedFertilizer?: string;
 	potSizeCm?: number;
@@ -227,26 +241,53 @@ export interface Plant {
  */
 export type WaterSource = 'manual' | 'rain' | 'irrigation';
 
+/**
+ * Quanta acqua, a occhio. Niente ml: nessuno misura l'acqua che dà alle piante, e
+ * i ml dello storico erano quasi sempre il valore proposto dallo slider. Tre
+ * livelli si scelgono senza pensarci, e col sensore si verifica se bastavano.
+ */
+export type WaterAmount = 'little' | 'normal' | 'lots';
+
+/**
+ * Cosa dice il dito nel terreno. "Asciutto" non ha bisogno di un tipo suo: vuol
+ * dire che la pianta va innaffiata, e diventa un'irrigazione.
+ */
+export type SoilFeel = 'moist' | 'wet';
+
+export interface SoilCheck {
+	date: string;
+	soil: SoilFeel;
+}
+
+export type ActionType = 'water' | 'fertilize' | 'repot' | 'prune' | 'check';
+
 export interface PlantAction {
 	id: string;
 	plantId: string;
-	type: 'water' | 'fertilize' | 'repot' | 'prune';
+	type: ActionType;
 	date: string;
 	notes?: string;
+	/** Solo irrigazioni: quanta acqua, a occhio. */
+	amount?: WaterAmount;
+	/** Storico (<= 1.13): ml dallo slider. Non più chiesti, si leggono e basta. */
 	amountMl?: number;
 	amountGrams?: number;
 	potSizeCm?: number;
 	// Solo per le irrigazioni. Assente = 'manual', così le azioni già registrate
 	// restano valide senza migrazione.
 	source?: WaterSource;
+	/** Solo per le prove del dito (`check`). */
+	soil?: SoilFeel;
 }
 
 export interface PlantActionOptions {
 	notes?: string;
+	amount?: WaterAmount;
 	amountMl?: number;
 	amountGrams?: number;
 	potSizeCm?: number;
 	source?: WaterSource;
+	soil?: SoilFeel;
 	// Assente = adesso. Serve a registrare a posteriori un'irrigazione dimenticata:
 	// la calibrazione guarda la curva attorno a questa data, quindi l'ora conta.
 	date?: string;
@@ -259,8 +300,10 @@ export interface PlantActionOptions {
 export interface PlantActionPatch {
 	date?: string;
 	notes?: string | null;
+	amount?: WaterAmount | null;
 	amountMl?: number | null;
 	amountGrams?: number | null;
 	potSizeCm?: number | null;
 	source?: WaterSource | null;
+	soil?: SoilFeel;
 }

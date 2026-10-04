@@ -1,6 +1,6 @@
 import mqtt from 'mqtt';
 import type { Plant, WaterSource } from '../shared/types';
-import { DAY_MS, describeDue, getCurrentSeason, getIntervalForSeason } from '../shared/schedule';
+import { DAY_MS, describeDue, describeWaterDue, getCurrentSeason, getIntervalForSeason, type DueInfo } from '../shared/schedule';
 import { assessSoil } from '../shared/soil';
 import { store } from './store';
 import { broadcast } from './events';
@@ -372,9 +372,10 @@ function daysAgo(dateStr?: string): number | null {
 
 // Mirrors the client-side getStatus(): hour-aware granularity within 24h, days otherwise.
 function getActionStatus(lastAction: string | undefined, intervalDays: number, neverKey: string): string {
-	if (!lastAction) return mt(neverKey);
+	return formatDue(describeDue(lastAction, intervalDays), neverKey);
+}
 
-	const due = describeDue(lastAction, intervalDays);
+function formatDue(due: DueInfo, neverKey: string): string {
 	if (due.dueAt === null) return mt(neverKey);
 
 	if (due.overdue) {
@@ -404,9 +405,11 @@ function publishState(plant: Plant) {
 	const currentReadings = getReadings(plant.id);
 	const prediction = currentReadings?.prediction;
 	const soil = assessSoil(plant.sensors, currentReadings?.soilHumidity, prediction);
+	// Una prova del dito "ancora umido" rimanda la scadenza: stesso calcolo della scheda.
+	const waterDue = describeWaterDue(plant, wateringIntervalDays);
 	const waterState = soil.needsWater
 		? mt(soil.source === 'ai' ? 'status.aiSoilWater' : 'status.soilSensorWater')
-		: getActionStatus(plant.lastWatered, wateringIntervalDays, 'watering.never');
+		: formatDue(waterDue, 'watering.never');
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState);
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/soil_needs_water`, soil.needsWater ? 'ON' : 'OFF');
 	// La % sulla scala della pianta, come entità a sé: è quella su cui ha senso
@@ -431,9 +434,7 @@ function publishState(plant: Plant) {
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/pruning`, pruneState);
 
 	// Next watering/fertilizing dates, last repotted/pruned dates — for automations (ISO 8601, device_class timestamp)
-	const nextWatering = plant.lastWatered
-		? new Date(new Date(plant.lastWatered).getTime() + wateringIntervalDays * DAY_MS).toISOString()
-		: '';
+	const nextWatering = waterDue.dueAt != null ? new Date(waterDue.dueAt).toISOString() : '';
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/watering_next`, nextWatering);
 
 	const nextFertilizing = plant.lastFertilized
@@ -466,6 +467,7 @@ function publishState(plant: Plant) {
 		watering_interval_days: wateringIntervalDays,
 		fertilizing_interval_days: fertilizingIntervalDays,
 		last_watered: plant.lastWatered || null,
+		last_soil_check: waterDue.check ? { date: waterDue.check.date, soil: waterDue.check.soil } : null,
 		last_fertilized: plant.lastFertilized || null,
 		last_repotted: plant.lastRepotted || null,
 		last_pruned: plant.lastPruned || null,

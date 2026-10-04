@@ -1,5 +1,5 @@
 import type { Plant, PlantReadings, Season, WateringPrediction } from '../shared/types';
-import { describeDue, getIntervalForSeason, type DueInfo } from '../shared/schedule';
+import { describeWaterDue, getIntervalForSeason, type WaterDue } from '../shared/schedule';
 import { assessSoil, type SoilSignal } from '../shared/soil';
 
 // Sotto questa soglia la stima è considerata "adesso" invece di "fra pochi minuti".
@@ -10,8 +10,11 @@ export interface WaterAssessment {
 	overdue: boolean;
 	/** Chi ha deciso: terreno (scala IA o soglia grezza), stima interna o programma stagionale. */
 	source: 'soil' | 'prediction' | 'schedule';
-	/** Scadenza da programma stagionale, sempre calcolata (fa da riferimento). */
-	due: DueInfo;
+	/**
+	 * Scadenza da programma stagionale, sempre calcolata (fa da riferimento). Una
+	 * prova del dito "ancora umido" la sposta in avanti: `due.check` dice quando.
+	 */
+	due: WaterDue;
 	intervalDays: number;
 	/** Segnale del terreno, calcolato in shared/soil.ts insieme al server. */
 	soil: SoilSignal;
@@ -38,7 +41,7 @@ export interface WaterAssessment {
  */
 export function assessWater(plant: Plant, readings: PlantReadings | undefined, season: Season): WaterAssessment {
 	const intervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
-	const due = describeDue(plant.lastWatered, intervalDays);
+	const due = describeWaterDue(plant, intervalDays);
 
 	const prediction = readings?.prediction ?? null;
 	const soil = assessSoil(plant.sensors, readings?.soilHumidity, prediction);
@@ -60,6 +63,14 @@ export function assessWater(plant: Plant, readings: PlantReadings | undefined, s
 		return { overdue: prediction.daysLeft <= DUE_NOW_DAYS, source: 'prediction', ...common };
 	}
 	return { overdue: due.overdue, source: 'schedule', ...common };
+}
+
+/**
+ * Le piante senza sensore del terreno, quando il calendario dice che è ora, non
+ * chiedono "innaffia" ma "tocca il terreno": il calendario stima, il dito verifica.
+ */
+export function needsFingerTest(plant: Plant, water: WaterAssessment): boolean {
+	return !plant.sensors?.soilHumidity && water.source === 'schedule' && water.overdue;
 }
 
 export function isPredictionDueNow(prediction: WateringPrediction): boolean {

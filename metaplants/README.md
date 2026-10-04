@@ -178,6 +178,16 @@ The chart and the calibration cycle list both use those symbols, so a cycle that
 looks odd tends to explain itself. Waterings logged before this existed read as
 "by hand".
 
+### How much water
+
+The water dialog asks **a little / normal / a lot** — no millilitres, because
+nobody measures the water they pour. It proposes the amount you used last time.
+On plants with a soil sensor, the card then tells you how the last watering
+went, measured against the plant's learned "full": *"soil at 96% of full — that
+was enough"* or *"only at 61% — more next time"*, and next time the dialog
+proposes one level more. Waterings logged before this have only the old ml
+values, which still show in the history table.
+
 On MQTT, the water button accepts a provenance as its payload: publishing
 `irrigation` to `metaplants/<slug>/water/set` records the watering as automatic
 rather than manual — which is what an automation driving a valve should send.
@@ -187,11 +197,13 @@ rather than manual — which is what an automation driving a valve should send.
 When the soil reading jumps up sharply, someone probably watered the plant
 without logging it. MetaPlants notices and asks: a dialog appears (immediately
 if the app is open, otherwise next time you open it) offering to log the
-watering with the usual ml slider.
+watering with the usual amount picker.
 
-Detection compares the current reading against the **lowest reading of the last
-45 minutes**: a rise of 10 percentage points or more (adjustable per plant in
-the form) triggers the prompt. It deliberately does not require the soil to
+Detection compares a reading against the **lowest reading of the 45 minutes
+before it**: a rise of 10 percentage points or more (adjustable per plant in
+the form) that is **still there half an hour later** triggers the prompt — so
+it arrives about 30 minutes after the water, and sensor glitches that spike and
+drop back within a quarter of an hour no longer ask about waterings nobody did. It deliberately does not require the soil to
 have been below the watering threshold first — that would miss every watering
 done before the plant got fully dry. After a prompt, or after any logged
 watering, detection pauses for 12 hours so the same watering isn't flagged
@@ -313,6 +325,25 @@ season from that history: it measures the gaps between consecutive waterings
 (or feedings), groups them by season, and averages. A 💡 button next to each
 field shows the suggestion — tap to apply it, or ignore it. You need at least
 two logged actions before anything shows up.
+
+### Finger test (plants without a soil sensor)
+
+A calendar can only guess. When a plant **without a soil sensor** comes due, the
+card doesn't say "water" but **👆 Touch the soil**, with three answers:
+
+- **Dry** — logs the watering right away, with the usual amount: you're standing
+  in front of the plant, one tap is enough
+- **Moist** — postpones the next check by a quarter of the watering interval
+- **Wet** — postpones it by half
+
+The postponement scales with the plant: a basil watered every 2 days that's
+still moist gets checked again tomorrow, a plant watered every 17 days in 4.
+The 👆 button among the actions opens the same test before the plant is due.
+Checks are kept in the history table (where they can be corrected like any
+other row) and move the `watering` state and `watering_next` on MQTT too. Since
+a moist soil delays the watering, the gaps between waterings stretch to match
+the plant, and the 💡 seasonal suggestion follows — you still decide whether to
+apply it.
 
 ![Seasonal Schedules & Suggestions](https://github.com/LupaioliS/lupaiolis-homeassistant/blob/feature/homeassistant-sensor/metaplants/app/projectimages/suggestion.png "Seasonal Schedules & Suggestions")
 

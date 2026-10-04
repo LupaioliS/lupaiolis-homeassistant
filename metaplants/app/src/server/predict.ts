@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, WaterSource, CalibrationObservation, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
+import type { Plant, PlantAction, WaterSource, WaterAmount, CalibrationObservation, SoilCalibration, WateringPrediction, PredictionConfidence } from '../shared/types';
 import { DAY_MS, HOUR_MS, getSeasonForDate, getCurrentSeason } from '../shared/schedule';
 import { getSamples, getArchivedObservations, setArchivedObservations, type Sample, type ArchivedObservation } from './history';
 import { findRises, samplePeak, sampleTrough } from '../shared/soil';
@@ -148,12 +148,13 @@ interface WateringEvent {
 	id?: string;
 	at: number;
 	source?: WaterSource;
+	amount?: WaterAmount;
 }
 
 function waterEvents(actions: PlantAction[]): WateringEvent[] {
 	return actions
 		.filter((a) => a.type === 'water')
-		.map((a) => ({ id: a.id, at: new Date(a.date).getTime(), source: a.source }))
+		.map((a) => ({ id: a.id, at: new Date(a.date).getTime(), source: a.source, amount: a.amount }))
 		.filter((e) => Number.isFinite(e.at))
 		.sort((a, b) => a.at - b.at);
 }
@@ -162,6 +163,7 @@ interface CycleObservation {
 	/** Istante dell'irrigazione confermata da cui arriva l'osservazione. */
 	at: number;
 	source?: WaterSource;
+	amount?: WaterAmount;
 	/** Minimo prima dell'acqua: il livello a cui questa pianta viene innaffiata. */
 	dry: number | null;
 	/** Massimo attorno all'irrigazione: il livello del terreno pieno. */
@@ -236,7 +238,7 @@ function observeWatering(soil: Sample[], w: number, riseDelta?: number): RawObse
 	};
 }
 
-function withSource({ at, source }: WateringEvent, raw: RawObservation): CycleObservation {
+function withSource({ at, source, amount }: WateringEvent, raw: RawObservation): CycleObservation {
 	// La pioggia bagna davvero, quindi il punto BAGNATO vale come gli altri: il
 	// terreno è arrivato lì per davvero. Il punto SECCO invece no — dice "a questo
 	// livello questa pianta va innaffiata", ed è una decisione, non un evento
@@ -244,7 +246,7 @@ function withSource({ at, source }: WateringEvent, raw: RawObservation): CycleOb
 	// insegnerebbe che quel livello umido è il momento di dare acqua: due piogge
 	// così di fila e la pianta comincia a chiedere acqua da bagnata.
 	const decidedWatering = source !== 'rain';
-	return { at, source, dry: decidedWatering ? raw.dry : null, wet: raw.wet };
+	return { at, source, amount, dry: decidedWatering ? raw.dry : null, wet: raw.wet };
 }
 
 /**
@@ -355,6 +357,7 @@ function calibrate(
 	const observations: CalibrationObservation[] = recent.map((o) => ({
 		at: new Date(o.at).toISOString(),
 		source: o.source,
+		amount: o.amount,
 		dry: o.dry == null ? null : round(o.dry),
 		wet: o.wet == null ? null : round(o.wet),
 	}));
@@ -375,6 +378,12 @@ function calibrate(
 	const wetPoint = resolveWetPoint(wetValues);
 
 	if (wetPoint - dryPoint < MIN_CALIBRATION_SPAN) return null;
+
+	// Fin dove è arrivata ogni irrigazione sulla scala appena ricavata: è il riscontro
+	// "bastava / ne serviva di più" che la scheda dà sulla quantità.
+	for (const o of observations) {
+		o.fill = o.wet == null ? null : Math.round(clamp(((o.wet - dryPoint) / (wetPoint - dryPoint)) * 100, 0, 100));
+	}
 
 	return {
 		dryPoint: round(dryPoint),

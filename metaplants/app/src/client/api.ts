@@ -1,4 +1,4 @@
-import type { Plant, PlantAction, PlantActionOptions, PlantActionPatch, HealthIssue, ProductUsage, PlantReadings, HaEntityList, SensorSample } from '../shared/types';
+import type { ActionType, Plant, PlantAction, PlantActionOptions, PlantActionPatch, HealthIssue, ProductUsage, PlantReadings, HaEntityList, SensorSample } from '../shared/types';
 import { BASE_PATH } from './basePath';
 import { prepareImageForUpload } from './imageResize';
 
@@ -26,7 +26,7 @@ export const api = {
 		request<Plant>(`/plants/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(data) }),
 	deletePlant: (id: string) =>
 		request<{ success: boolean }>(`/plants/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-	logAction: (plantId: string, type: 'water' | 'fertilize' | 'repot' | 'prune', options?: PlantActionOptions) =>
+	logAction: (plantId: string, type: ActionType, options?: PlantActionOptions) =>
 		request<PlantAction>(`/plants/${encodeURIComponent(plantId)}/actions`, {
 			method: 'POST',
 			body: JSON.stringify({ type, ...options }),

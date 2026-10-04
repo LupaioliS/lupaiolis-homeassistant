@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
-import type { SeasonalSchedule, PlantSensors, WaterSource, PlantAction, PlantActionPatch } from '../../shared/types';
+import type { SeasonalSchedule, PlantSensors, WaterSource, WaterAmount, SoilFeel, PlantAction, PlantActionPatch, PlantActionOptions } from '../../shared/types';
 import { DAY_MS, getCurrentSeason, getIntervalForSeason } from '../../shared/schedule';
 import { store, UPLOADS_DIR, ensureUploadsDir, normalizeDate } from '../store';
 import { publishPlant, publishAllPlants, removePlant, republishPlant } from '../mqtt';
@@ -14,7 +14,9 @@ import { dropPlantHistory, getSamples, type SeriesKey } from '../history';
 
 const SERIES_KEYS: SeriesKey[] = ['soil', 'temp', 'hum'];
 const WATER_SOURCES: WaterSource[] = ['manual', 'rain', 'irrigation'];
-const ACTION_TYPES: PlantAction['type'][] = ['water', 'fertilize', 'repot', 'prune'];
+const ACTION_TYPES: PlantAction['type'][] = ['water', 'fertilize', 'repot', 'prune', 'check'];
+const WATER_AMOUNTS: WaterAmount[] = ['little', 'normal', 'lots'];
+const SOIL_FEELS: SoilFeel[] = ['moist', 'wet'];
 
 /**
  * Ciò che va rifatto quando lo storico azioni cambia, da qualunque strada arrivi:
@@ -183,17 +185,20 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		return { success: true };
 	});
 
-	// Log action (water/fertilize/repot/prune)
-	fastify.post<{ Params: { id: string }; Body: { type: 'water' | 'fertilize' | 'repot' | 'prune'; notes?: string; amountMl?: number; amountGrams?: number; potSizeCm?: number; source?: WaterSource; date?: string } }>('/plants/:id/actions', async (request, reply) => {
-		const { type, notes, amountMl, amountGrams, potSizeCm, source, date } = request.body;
+	// Log action (water/fertilize/repot/prune/check)
+	fastify.post<{ Params: { id: string }; Body: PlantActionOptions & { type: PlantAction['type'] } }>('/plants/:id/actions', async (request, reply) => {
+		const { type, notes, amount, amountMl, amountGrams, potSizeCm, source, soil, date } = request.body;
 		if (!ACTION_TYPES.includes(type)) return reply.status(400).send({ error: 'Unknown action type' });
+		// Una prova del dito senza esito non dice niente, e rimanderebbe il controllo a caso.
+		if (type === 'check' && (!soil || !SOIL_FEELS.includes(soil))) return reply.status(400).send({ error: 'Unknown soil feel' });
+		const safeAmount = amount && WATER_AMOUNTS.includes(amount) ? amount : undefined;
 		// Una provenienza sconosciuta viene ignorata invece di finire nello storico:
 		// vale come 'manual', che è il valore implicito di tutto ciò che è già salvato.
 		const safeSource = source && WATER_SOURCES.includes(source) ? source : undefined;
 		// Registrare a posteriori è consentito, inventare una data no: la calibrazione
 		// cerca la risalita del terreno attorno a questo istante.
 		if (date != null && normalizeDate(date) == null) return reply.status(400).send({ error: 'Invalid date' });
-		const action = store.addAction(request.params.id, type, { notes, amountMl, amountGrams, potSizeCm, source: safeSource, date });
+		const action = store.addAction(request.params.id, type, { notes, amount: safeAmount, amountMl, amountGrams, potSizeCm, source: safeSource, soil, date });
 		if (!action) return reply.status(404).send({ error: 'Plant not found' });
 		publishActionChange(action.plantId, action.type);
 		return action;
@@ -202,10 +207,12 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 	// Correzione di una riga dello storico. Serve perché quello che il modello impara
 	// dipende dall'ora esatta dell'irrigazione, e dentro il container i JSON non si toccano.
 	fastify.put<{ Params: { actionId: string }; Body: PlantActionPatch }>('/actions/:actionId', async (request, reply) => {
-		const { date, notes, amountMl, amountGrams, potSizeCm, source } = request.body ?? {};
+		const { date, notes, amount, amountMl, amountGrams, potSizeCm, source, soil } = request.body ?? {};
 		if (date != null && normalizeDate(date) == null) return reply.status(400).send({ error: 'Invalid date' });
 		if (source != null && !WATER_SOURCES.includes(source)) return reply.status(400).send({ error: 'Unknown water source' });
-		const action = store.updateAction(request.params.actionId, { date, notes, amountMl, amountGrams, potSizeCm, source });
+		if (amount != null && !WATER_AMOUNTS.includes(amount)) return reply.status(400).send({ error: 'Unknown water amount' });
+		if (soil != null && !SOIL_FEELS.includes(soil)) return reply.status(400).send({ error: 'Unknown soil feel' });
+		const action = store.updateAction(request.params.actionId, { date, notes, amount, amountMl, amountGrams, potSizeCm, source, soil });
 		if (!action) return reply.status(404).send({ error: 'Action not found' });
 		publishActionChange(action.plantId, action.type);
 		return action;
