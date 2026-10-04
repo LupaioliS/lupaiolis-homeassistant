@@ -4,13 +4,12 @@ import { broadcast } from './events';
 import { config } from './config';
 import { recordSample, getSamples, seedLegacySamples } from './history';
 import { predictWatering, previewDryPoint } from './predict';
+import { findRises, isValidSoilReading } from '../shared/soil';
 import { Plant, PlantReadings, PlantSensors } from '../shared/types';
 
-// Risalita (in punti percentuali) entro SOIL_JUMP_WINDOW_MS che fa sospettare
-// un'irrigazione. Override per pianta con sensors.soilJumpDelta.
-const SOIL_JUMP_DELTA = 10;
-// Finestra su cui si cerca il minimo con cui confrontare la lettura attuale.
-const SOIL_JUMP_WINDOW_MS = 45 * 60 * 1000;
+// Quanto indietro guardare per trovare una risalita: il minimo prima del salto
+// (RISE_WINDOW_MS) più il tempo che serve a confermarla (fino a RISE_CONFIRM_MAX_MS).
+const SOIL_JUMP_LOOKBACK_MS = 4 * 60 * 60 * 1000;
 // Dopo un salto rilevato (o un'irrigazione registrata) il terreno resta bagnato:
 // in questo periodo non si chiede di nuovo conferma.
 const SOIL_JUMP_COOLDOWN_MS = 12 * 60 * 60 * 1000;
@@ -60,18 +59,18 @@ function inJumpCooldown(plant: Plant, now: number): boolean {
  * di irrigazione: se innaffiavi prima che il terreno si asciugasse del tutto — cioè
  * quasi sempre — il salto non veniva mai rilevato. Qui basta una risalita marcata
  * rispetto al minimo recente, che la soglia sia configurata o no.
+ *
+ * È la stessa `findRises` di calibrazione e grafico, non una copia: quindi chiede
+ * solo di salti che durano almeno mezz'ora. I disturbi del sensore (su e giù nel
+ * giro di un quarto d'ora) facevano partire la domanda senza che nessuno avesse
+ * dato acqua.
  */
-function detectJump(plant: Plant, current: number, now: number): boolean {
+function detectJump(plant: Plant, now: number): boolean {
 	if (plant.sensors?.soilJumpPendingAck) return false; // già in attesa di risposta
 	if (inJumpCooldown(plant, now)) return false;
 
-	const delta = plant.sensors?.soilJumpDelta ?? SOIL_JUMP_DELTA;
-	// Il campione corrente è già stato registrato: si confronta con quelli prima di lui.
-	const window = getSamples(plant.id, 'soil', now - SOIL_JUMP_WINDOW_MS).filter((s) => s.t < now);
-	if (window.length === 0) return false;
-
-	const baseline = Math.min(...window.map((s) => s.v));
-	return current - baseline >= delta;
+	const recent = getSamples(plant.id, 'soil', now - SOIL_JUMP_LOOKBACK_MS);
+	return findRises(recent, plant.sensors?.soilJumpDelta).length > 0;
 }
 
 function computePrediction(plant: Plant, currentSoil: number | null) {
@@ -94,11 +93,17 @@ async function readPlant(plant: Plant): Promise<void> {
 	]);
 
 	const now = Date.now();
+	// Una lettura impossibile (448%, 0 da sensore staccato) vale come sensore non
+	// disponibile: non finisce nello storico, non fa scattare l'allerta e non
+	// sembra un'irrigazione al rientro sul valore vero.
+	const soilValue = isValidSoilReading(soilHum?.value) ? soilHum!.value : null;
+	if (soilHum?.value != null && soilValue == null) {
+		console.warn(`[Sensors] Ignored invalid soil reading for '${plant.name}': ${soilHum.value}`);
+	}
 	if (temp?.value != null) recordSample(plant.id, 'temp', temp.value, now);
 	if (ambientHum?.value != null) recordSample(plant.id, 'hum', ambientHum.value, now);
-	if (soilHum?.value != null) recordSample(plant.id, 'soil', soilHum.value, now);
+	if (soilValue != null) recordSample(plant.id, 'soil', soilValue, now);
 
-	const soilValue = soilHum?.value ?? null;
 	const next: PlantReadings = {
 		temperature: temp?.value ?? null,
 		ambientHumidity: ambientHum?.value ?? null,
@@ -118,7 +123,7 @@ async function readPlant(plant: Plant): Promise<void> {
 
 	// plants.json viene riscritto solo quando cambia qualcosa di persistente:
 	// lo storico ora vive in history.db (history.ts), quindi il poll normale non tocca il disco.
-	const jumped = detectJump(plant, soilValue, now);
+	const jumped = detectJump(plant, now);
 	const baselineChanged = s.lastSoilHumidity == null || Math.abs(s.lastSoilHumidity - soilValue) >= 1;
 	if (!jumped && !baselineChanged) return;
 

@@ -12,6 +12,12 @@ Sensor history moves from `history.json` to **SQLite** (`history.db`, same `/dat
 - The working copy stays in memory, as before: the database is only where history survives restarts, and isn't queried while running. Saves still happen every 15 minutes and on shutdown, so a power cut loses at most the last 15 minutes, as before
 - With four times the history, the estimate no longer scans all of it for every logged watering on every poll: the window around each watering is found by binary search
 
+Three fixes found by running the model on two weeks of real data from six soil sensors:
+
+- **Impossible soil readings are ignored**: above 100%, below 0, or exactly 0. One sensor came back from 33 hours offline reading 448%; another dropped to 0 for a single reading between 52 and 53. The 0 became that plant's learned dry point (scale 15 instead of 30) and the recovery 0 → 53 looked like a watering. An invalid reading now counts as "sensor unavailable": it isn't stored, doesn't raise the alert and doesn't trigger the prompt. Readings already in the history are cleaned on startup, on disk too
+- **A rise must last half an hour to count as watering.** Sensor glitches go up and come back down within a quarter of an hour (real case: 44 → 58.5 at 3am, back to 44.7 an hour later) and triggered "did you water it?" with nobody around. The prompt, the calibration and the chart's `?` markers now share the same rule — the prompt used to have its own copy of the detection — and the prompt arrives about 30 minutes after the water instead of immediately; pressing the button in the meantime still prevents it
+- **A watering the sensor never saw teaches nothing.** When a logged watering's window closes without any rise, the soil readings before the button press were taken as the dry point — real case: a plant watered while still at 52%, no rise, scale moved from 30% to 41%, i.e. asking for water while wet. Such a watering is now skipped; the fallback remains only while the window is still open
+
 ## 1.12.1
 
 Plants watered **once a month no longer lose their scale**. Raw soil readings are kept for about two weeks, and the calibration was rebuilt from them on every poll — so a watering older than that simply vanished: the 0% point fell back to the manual threshold or to "—", and with it the percentage drifted back up on its own.

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import type { SensorSample } from '../shared/types';
-import { samplePeak, sampleTrough } from '../shared/soil';
+import { isValidSoilReading, samplePeak, sampleTrough } from '../shared/soil';
 
 /**
  * Storico delle letture dei sensori.
@@ -98,6 +98,7 @@ let statements: {
 	upsertSample: StatementSync;
 	trimSeries: StatementSync;
 	deletePlantSamples: StatementSync;
+	deleteSample: StatementSync;
 	deletePlantObservations: StatementSync;
 	insertObservation: StatementSync;
 } | null = null;
@@ -124,6 +125,26 @@ const bucketOf = (key: SeriesKey, t: number) => {
 	const { bucketMs } = SERIES_CONFIG[key];
 	return Math.floor(t / bucketMs) * bucketMs;
 };
+
+/**
+ * Il campione ripulito dalle letture impossibili del terreno (vedi
+ * `isValidSoilReading`), o `null` se non resta niente di buono. Serve per lo
+ * storico salvato prima che il filtro esistesse: un 448% finito come picco di un
+ * bucket resta lì per due mesi, e il picco è proprio ciò da cui si impara il 100%.
+ */
+function sanitizeSample(key: SeriesKey, sample: Sample): Sample | null {
+	if (key !== 'soil') return sample;
+	if (!isValidSoilReading(sample.v)) return null;
+	if (sample.peak != null && !isValidSoilReading(sample.peak)) delete sample.peak;
+	if (sample.trough != null && !isValidSoilReading(sample.trough)) delete sample.trough;
+	return sample;
+}
+
+/** Stessa regola per l'archivio, che arriva da quei campioni. */
+function sanitizeObservation(o: ArchivedObservation): ArchivedObservation | null {
+	if (!isValidSoilReading(o.wet)) return null;
+	return o.dry != null && !isValidSoilReading(o.dry) ? { ...o, dry: null } : o;
+}
 
 function markPending(plantId: string, key: SeriesKey, sample: Sample): void {
 	pending.set(sample, { plantId, key });
@@ -181,6 +202,7 @@ function openDatabase(): DatabaseSync {
 		`),
 		trimSeries: database.prepare('DELETE FROM samples WHERE plant_id = ? AND series = ? AND bucket < ?'),
 		deletePlantSamples: database.prepare('DELETE FROM samples WHERE plant_id = ?'),
+		deleteSample: database.prepare('DELETE FROM samples WHERE bucket = ? AND plant_id = ? AND series = ?'),
 		deletePlantObservations: database.prepare('DELETE FROM calibration WHERE plant_id = ?'),
 		insertObservation: database.prepare('INSERT INTO calibration (plant_id, action_id, at, dry, wet) VALUES (?, ?, ?, ?, ?)'),
 	};
@@ -228,9 +250,11 @@ function importLegacyJson(): void {
 			for (const entry of stored) {
 				if (!Array.isArray(entry) || entry.length < 2) continue;
 				const [t, v, peak, trough] = entry;
-				const sample: Sample = { t: t * 1000, v };
-				if (peak != null) sample.peak = peak;
-				if (trough != null) sample.trough = trough;
+				const raw: Sample = { t: t * 1000, v };
+				if (peak != null) raw.peak = peak;
+				if (trough != null) raw.trough = trough;
+				const sample = sanitizeSample(key, raw);
+				if (!sample) continue;
 				target.push(sample);
 				markPending(plantId, key, sample);
 			}
@@ -243,7 +267,8 @@ function importLegacyJson(): void {
 			plantId,
 			stored
 				.filter((o) => Array.isArray(o) && typeof o[0] === 'string' && Number.isFinite(o[1]) && Number.isFinite(o[3]))
-				.map(([actionId, t, dry, wet]) => ({ actionId, at: t * 1000, dry: dry ?? null, wet })),
+				.map(([actionId, t, dry, wet]) => sanitizeObservation({ actionId, at: t * 1000, dry: dry ?? null, wet }))
+				.filter((o): o is ArchivedObservation => o != null),
 		);
 	}
 
@@ -259,12 +284,26 @@ function loadFromDatabase(database: DatabaseSync): void {
 	const rows = database
 		.prepare('SELECT plant_id, series, t, v, peak, trough FROM samples ORDER BY plant_id, series, bucket')
 		.all() as { plant_id: string; series: string; t: number; v: number; peak: number | null; trough: number | null }[];
+	// Le letture impossibili salvate prima che esistesse il filtro si tolgono qui,
+	// in memoria e su disco: un picco a 448% resterebbe nello storico per due mesi.
+	const invalid: { plantId: string; key: SeriesKey; t: number }[] = [];
+	let repaired = 0;
 	for (const row of rows) {
 		if (!(row.series in SERIES_CONFIG)) continue;
-		const sample: Sample = { t: row.t, v: row.v };
-		if (row.peak != null) sample.peak = row.peak;
-		if (row.trough != null) sample.trough = row.trough;
-		seriesFor(row.plant_id)[row.series as SeriesKey].push(sample);
+		const key = row.series as SeriesKey;
+		const raw: Sample = { t: row.t, v: row.v };
+		if (row.peak != null) raw.peak = row.peak;
+		if (row.trough != null) raw.trough = row.trough;
+		const sample = sanitizeSample(key, raw);
+		if (!sample) {
+			invalid.push({ plantId: row.plant_id, key, t: row.t });
+			continue;
+		}
+		if ((row.peak != null && sample.peak == null) || (row.trough != null && sample.trough == null)) {
+			markPending(row.plant_id, key, sample);
+			repaired++;
+		}
+		seriesFor(row.plant_id)[key].push(sample);
 	}
 	// Se maxSamples è sceso fra una versione e l'altra, il disco si pota al prossimo salvataggio.
 	for (const [plantId] of history) {
@@ -277,7 +316,18 @@ function loadFromDatabase(database: DatabaseSync): void {
 	for (const row of stored) {
 		let list = observations.get(row.plant_id);
 		if (!list) observations.set(row.plant_id, (list = []));
-		list.push({ actionId: row.action_id, at: row.at, dry: row.dry, wet: row.wet });
+		const observation = sanitizeObservation({ actionId: row.action_id, at: row.at, dry: row.dry, wet: row.wet });
+		if (observation) list.push(observation);
+		else repaired++;
+	}
+
+	if (invalid.length > 0 || repaired > 0) {
+		inTransaction(() => {
+			for (const { plantId, key, t } of invalid) statements?.deleteSample.run(bucketOf(key, t), plantId, key);
+			flushPendingSamples();
+			for (const [plantId, list] of observations) writeObservations(plantId, list);
+		});
+		console.log(`[History] Removed ${invalid.length} invalid soil reading(s), repaired ${repaired}`);
 	}
 }
 
@@ -342,6 +392,7 @@ export function stopHistoryPersistence(): void {
  */
 export function recordSample(plantId: string, key: SeriesKey, value: number, at: number = Date.now()): void {
 	if (!Number.isFinite(value)) return;
+	if (key === 'soil' && !isValidSoilReading(value)) return;
 	const { bucketMs } = SERIES_CONFIG[key];
 	const series = seriesFor(plantId)[key];
 	const rounded = Math.round(value * 100) / 100;

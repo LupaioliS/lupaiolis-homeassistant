@@ -45,7 +45,7 @@ export interface PlantSensors {
 	// il client mostra il prompt e poi chiama ack-soil-jump per azzerare questo flag.
 	soilJumpPendingAck?: boolean;
 	// Punti percentuali di risalita entro SOIL_JUMP_WINDOW_MS che fanno scattare il
-	// rilevamento di un'irrigazione. Opzionale: senza valore vale SOIL_JUMP_DELTA.
+	// rilevamento di un'irrigazione. Opzionale: senza valore vale DEFAULT_RISE_DELTA (shared/soil.ts).
 	soilJumpDelta?: number;
 	// Ultimo salto rilevato: evita di richiedere conferma due volte per la stessa
 	// irrigazione mentre il terreno è ancora bagnato.

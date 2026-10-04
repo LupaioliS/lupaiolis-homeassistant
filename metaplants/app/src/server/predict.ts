@@ -213,6 +213,13 @@ function observeWatering(soil: Sample[], w: number, riseDelta?: number): RawObse
 	// curva: è l'unico riferimento che non dipende da quando hai premuto il
 	// pulsante. Il secco sta prima di quel punto, il bagnato da lì in poi.
 	const rise = findRises(around, riseDelta)[0];
+	// Finestra chiusa e nessuna risalita: il sensore non ha visto arrivare acqua.
+	// Il ripiego qui sotto (secco = letture prima del pulsante) prendeva allora per
+	// "secco" un terreno che era bagnato — dati reali: Kentia innaffiata al 52%,
+	// nessuna risalita, scala spostata da 30 a 41, cioè una pianta che chiede acqua
+	// da bagnata. Il ripiego resta per le irrigazioni appena registrate, la cui
+	// risalita può non essere ancora confermata, e per l'anteprima.
+	if (rise == null && soil[soil.length - 1].t >= w + WET_PEAK_WINDOW_MS) return null;
 	const beforeRise = rise != null ? around.slice(0, rise) : around.filter((s) => s.t <= w);
 	const fromRise = rise != null ? around.slice(rise) : around;
 

@@ -18,6 +18,20 @@ import type { PlantSensors, SensorSample, WateringPrediction } from './types';
 // definizione: lo zero della scala È il punto in cui di solito innaffi.
 export const AI_DRY_LEVEL = 0;
 
+/**
+ * Una lettura del terreno che può essere vera.
+ *
+ * Sopra 100 o sotto 0 è impossibile per definizione. Esattamente 0 è il segno di
+ * un sensore che si è staccato, non di un vaso secco: dai dati reali, una singola
+ * lettura a 0 fra due al 52-53% (e un 448% al rientro dopo 33 ore offline). Presi
+ * per buoni, lo 0 diventava il punto secco imparato e la ripresa 0 → 53 una
+ * risalita da "hai innaffiato?"; il 448 il picco su cui si regola tutto il resto.
+ * Un terreno davvero asciutto legge comunque qualche punto sopra lo zero.
+ */
+export function isValidSoilReading(value: number | null | undefined): value is number {
+	return value != null && Number.isFinite(value) && value > 0 && value <= 100;
+}
+
 /** Massimo osservato per il campione: il picco se registrato, altrimenti il valore. */
 export function samplePeak(sample: SensorSample): number {
 	return sample.peak ?? sample.v;
@@ -29,12 +43,18 @@ export function sampleTrough(sample: SensorSample): number {
 }
 
 // Finestra su cui si cerca il minimo con cui confrontare una lettura per decidere
-// se è una risalita. Stesso valore usato dal rilevamento in server/sensors.ts.
+// se è una risalita.
 export const RISE_WINDOW_MS = 45 * 60 * 1000;
 // Risalita, in punti percentuali, che fa sospettare un'irrigazione.
 export const DEFAULT_RISE_DELTA = 10;
 // Due risalite più vicine di così sono lo stesso evento (il terreno resta bagnato).
 const RISE_MERGE_MS = 12 * 60 * 60 * 1000;
+// Un'irrigazione lascia il terreno bagnato; un disturbo del sensore no. Dai dati
+// reali: un salto 44 → 58.5 alle 3 di notte, tornato a 44.7 un'ora dopo. Dopo
+// questo tempo la lettura deve stare ancora sopra almeno metà del salto richiesto.
+export const RISE_CONFIRM_MS = 30 * 60 * 1000;
+// Oltre questo tempo senza letture (sensore offline) il salto non si può confermare.
+const RISE_CONFIRM_MAX_MS = 3 * 60 * 60 * 1000;
 
 /**
  * Gli istanti in cui il terreno è risalito di colpo, cioè quando è arrivata acqua.
@@ -43,6 +63,12 @@ const RISE_MERGE_MS = 12 * 60 * 60 * 1000;
  * ma qui applicata a posteriori su una serie: serve alla calibrazione per sapere
  * DOVE è arrivata l'acqua invece di fidarsi dell'orario in cui hai premuto il
  * pulsante, e al grafico per marcare le risalite che nessuno ha confermato.
+ *
+ * Conta solo un salto che DURA: mezz'ora dopo la lettura deve stare ancora sopra
+ * metà del salto richiesto. I disturbi del sensore salgono e tornano giù nel giro
+ * di un quarto d'ora; l'acqua resta. Il prezzo è che una risalita appena iniziata
+ * diventa tale solo dopo RISE_CONFIRM_MS — per la domanda "hai innaffiato?"
+ * significa arrivare mezz'ora più tardi, e intanto il pulsante premuto la evita.
  *
  * Restituisce gli indici nella serie ricevuta, in ordine cronologico.
  */
@@ -56,9 +82,21 @@ export function findRises(samples: SensorSample[], delta = DEFAULT_RISE_DELTA): 
 		if (!Number.isFinite(baseline)) continue;
 		if (samplePeak(samples[i]) - baseline < delta) continue;
 		if (rises.length > 0 && samples[i].t - samples[rises[rises.length - 1]].t < RISE_MERGE_MS) continue;
+		if (!riseHolds(samples, i, baseline + delta / 2)) continue;
 		rises.push(i);
 	}
 	return rises;
+}
+
+/** La prima lettura dopo RISE_CONFIRM_MS è ancora sopra `level`? */
+function riseHolds(samples: SensorSample[], index: number, level: number): boolean {
+	const from = samples[index].t + RISE_CONFIRM_MS;
+	for (let k = index + 1; k < samples.length; k++) {
+		if (samples[k].t < from) continue;
+		if (samples[k].t - samples[index].t > RISE_CONFIRM_MAX_MS) return false;
+		return samples[k].v >= level;
+	}
+	return false; // non ancora confermabile
 }
 
 export type SoilSignalSource = 'ai' | 'raw' | 'none';
