@@ -36,7 +36,7 @@ interface SeriesConfig {
 // Solo il terreno serve al modello: le altre serie tengono giusto abbastanza
 // per un eventuale grafico recente.
 const SERIES_CONFIG: Record<SeriesKey, SeriesConfig> = {
-	soil: { bucketMs: 15 * MINUTE_MS, maxSamples: 1344 }, // ~14 giorni
+	soil: { bucketMs: 15 * MINUTE_MS, maxSamples: 5760 }, // ~60 giorni
 	temp: { bucketMs: 30 * MINUTE_MS, maxSamples: 96 },   // ~2 giorni
 	hum: { bucketMs: 30 * MINUTE_MS, maxSamples: 96 },
 };
