@@ -12,6 +12,20 @@ export const en = {
 		sortSpecies: 'Sort by species',
 		sortAttention: 'Sort by needs attention',
 		noResults: 'No plants match your search',
+		settings: 'Alert settings',
+	},
+	nav: {
+		label: 'Go to plant',
+		search: 'Search',
+	},
+	settings: {
+		title: 'Alerts',
+		attentionTitle: 'What to show in "Needs attention"',
+		attentionHint: 'Also applies to sorting by needs attention and to the coloured rings of the plants at the top. Saved on this device.',
+		water: '💧 Watering',
+		fertilize: '🧪 Fertilizing',
+		health: '🏥 Health issues',
+		close: 'Close',
 	},
 	plant: {
 		name: 'Name',

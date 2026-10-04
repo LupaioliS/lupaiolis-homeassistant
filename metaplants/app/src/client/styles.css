@@ -1196,3 +1196,204 @@ header h1 {
   gap: 4px;
   justify-content: flex-end;
 }
+
+/* Barra delle piante in cima (stile "storie"): resta attaccata mentre si scorre */
+.plant-nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  margin: 0 -16px 18px;
+  padding: 6px 0 4px;
+  background: rgba(240, 253, 244, 0.88);
+  -webkit-backdrop-filter: saturate(1.4) blur(10px);
+  backdrop-filter: saturate(1.4) blur(10px);
+  border-bottom: 1px solid var(--green-200);
+}
+
+.plant-nav-list {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 16px;
+  list-style: none;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  overscroll-behavior-x: contain;
+}
+
+.plant-nav-list::-webkit-scrollbar {
+  display: none;
+}
+
+.plant-nav-list li {
+  flex: 0 0 auto;
+  scroll-snap-align: center;
+}
+
+.plant-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 64px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--green-800);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.plant-nav-ring {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  padding: 3px;
+  border-radius: 50%;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.plant-nav-ring-search {
+  background: var(--green-200);
+}
+
+.plant-nav-avatar {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  background: var(--green-100);
+  overflow: hidden;
+  font-size: 1.5rem;
+}
+
+.plant-nav-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.plant-nav-name {
+  max-width: 64px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.72rem;
+}
+
+.plant-nav-item:active .plant-nav-ring {
+  transform: scale(0.92);
+}
+
+.plant-nav-item.active .plant-nav-ring {
+  transform: scale(1.06);
+  box-shadow: 0 1px 6px rgba(22, 163, 74, 0.35);
+}
+
+.plant-nav-item.active .plant-nav-name {
+  font-weight: 700;
+  color: var(--green-900);
+}
+
+/* La scheda raggiunta dalla barra non deve finire sotto la barra stessa */
+.plant-card {
+  scroll-margin-top: 104px;
+}
+
+@keyframes plant-card-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(34, 197, 94, 0);
+  }
+}
+
+.plant-card-flash {
+  animation: plant-card-flash 0.9s ease-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plant-card-flash {
+    animation: none;
+  }
+
+  .plant-nav-ring {
+    transition: none;
+  }
+}
+
+/* Impostazioni avvisi */
+.settings-section-title {
+  font-weight: 600;
+  color: var(--green-800);
+  margin-bottom: 8px;
+}
+
+.settings-toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settings-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--green-200);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.settings-toggle input {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 42px;
+  height: 24px;
+  border-radius: 12px;
+  background: #d1d5db;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.settings-toggle input::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: transform 0.15s;
+}
+
+.settings-toggle input:checked {
+  background: var(--green-500);
+}
+
+.settings-toggle input:checked::after {
+  transform: translateX(18px);
+}
+
+.settings-toggle input:focus-visible {
+  outline: 2px solid var(--green-600);
+  outline-offset: 2px;
+}
+
+.settings-hint {
+  font-size: 0.82rem;
+  color: #555;
+  margin-top: 12px;
+  line-height: 1.4;
+}

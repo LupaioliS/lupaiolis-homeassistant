@@ -17,6 +17,8 @@ interface PlantCardProps {
 	readings?: PlantReadings;
 	/** Storico azioni della pianta, caricato una volta sola da App. */
 	actions?: PlantAction[];
+	/** id del DOM a cui scorre la barra delle piante in cima. */
+	anchorId?: string;
 	onWater: (amountMl: number | undefined, source?: WaterSource) => void | Promise<void>;
 	onFertilize: (amountGrams: number) => void | Promise<void>;
 	onEdit: () => void;
@@ -267,7 +269,7 @@ function ActionButton({ disabled: initialDisabled, className, onClick, label }: 
 	);
 }
 
-export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEdit, onRefresh, onPatch }: PlantCardProps) {
+export function PlantCard({ plant, readings, actions, anchorId, onWater, onFertilize, onEdit, onRefresh, onPatch }: PlantCardProps) {
 	const [showHealth, setShowHealth] = useState(false);
 	const [showProducts, setShowProducts] = useState(false);
 	const [issueType, setIssueType] = useState<HealthIssueType>('pest');
@@ -577,7 +579,7 @@ export function PlantCard({ plant, readings, actions, onWater, onFertilize, onEd
 	const resolvedIssues = (plant.healthIssues ?? []).filter((i) => i.resolvedDate);
 
 	return (
-		<div className="plant-card" ref={cardRef}>
+		<div className="plant-card" id={anchorId} ref={cardRef}>
 			<WaterSplashEffect targets={splashTargets} onSettle={handleDropletSettle} />
 			<WaterFillOverlay targets={fillTargets} />
 			<FertilizeSproutEffect targets={sproutTargets} />

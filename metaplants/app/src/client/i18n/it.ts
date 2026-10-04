@@ -12,6 +12,20 @@ export const it = {
 		sortSpecies: 'Ordina per specie',
 		sortAttention: 'Ordina per attenzioni necessarie',
 		noResults: 'Nessuna pianta corrisponde alla ricerca',
+		settings: 'Impostazioni avvisi',
+	},
+	nav: {
+		label: 'Vai alla pianta',
+		search: 'Cerca',
+	},
+	settings: {
+		title: 'Avvisi',
+		attentionTitle: 'Cosa mostrare in "Hanno bisogno di attenzioni"',
+		attentionHint: 'Vale anche per l\'ordinamento per attenzioni e per gli anelli colorati delle piante in alto. Salvato su questo dispositivo.',
+		water: '💧 Irrigazione',
+		fertilize: '🧪 Concimazione',
+		health: '🏥 Problemi di salute',
+		close: 'Chiudi',
 	},
 	plant: {
 		name: 'Nome',

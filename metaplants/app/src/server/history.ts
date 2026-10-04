@@ -14,6 +14,11 @@ import { samplePeak, sampleTrough } from '../shared/soil';
  *
  * I campioni sono raggruppati per bucket temporale (l'ultimo valore vince), così la
  * dimensione del file non dipende dalla frequenza di polling.
+ *
+ * Accanto ai campioni vive l'ARCHIVIO della calibrazione: per ogni irrigazione
+ * registrata, il secco e il bagnato visti dal sensore attorno a lei. I campioni
+ * grezzi durano ~14 giorni, una pianta che si bagna una volta al mese no — senza
+ * l'archivio la sua scala svaniva insieme alle letture, e la % tornava a salire.
  */
 
 const DATA_DIR = path.resolve(process.env.DATA_DIR || path.join(__dirname, '../../data'));
@@ -53,12 +58,37 @@ type StoredSample =
 	| [number, number]
 	| [number, number, number | null]
 	| [number, number, number | null, number | null];
+/**
+ * Cosa ha visto il sensore attorno a un'irrigazione registrata, congelato quando
+ * l'osservazione è completa: i campioni da cui arriva prima o poi escono dallo
+ * storico, questi due numeri no.
+ */
+export interface ArchivedObservation {
+	/** Azione `water` da cui arriva l'osservazione. */
+	actionId: string;
+	/** Orario dell'azione quando è stata osservata: se la riga viene spostata, non vale più. */
+	at: number;
+	/**
+	 * Minimo prima della risalita, SENZA la regola della pioggia: quella si applica
+	 * in lettura, così cambiare la provenienza di una vecchia irrigazione funziona
+	 * anche quando le letture attorno a lei non ci sono più.
+	 */
+	dry: number | null;
+	wet: number;
+}
+
+// Su disco: [idAzione, secondi, secco|null, bagnato].
+type StoredObservation = [string, number, number | null, number];
+
 interface StoredFile {
 	version: number;
 	plants: Record<string, Partial<Record<SeriesKey, StoredSample[]>>>;
+	// Assente nei file scritti prima della 1.12.1; le versioni precedenti lo ignorano.
+	calibration?: Record<string, StoredObservation[]>;
 }
 
 const history = new Map<string, PlantSeries>();
+const observations = new Map<string, ArchivedObservation[]>();
 let dirty = false;
 let persistTimer: NodeJS.Timeout | null = null;
 
@@ -96,6 +126,15 @@ export function loadHistory(): void {
 					});
 			}
 		}
+		for (const [plantId, stored] of Object.entries(parsed.calibration ?? {})) {
+			if (!Array.isArray(stored)) continue;
+			observations.set(
+				plantId,
+				stored
+					.filter((o) => Array.isArray(o) && typeof o[0] === 'string' && Number.isFinite(o[1]) && Number.isFinite(o[3]))
+					.map(([actionId, t, dry, wet]) => ({ actionId, at: t * 1000, dry: dry ?? null, wet })),
+			);
+		}
 		console.log(`[History] Loaded readings for ${history.size} plant(s)`);
 	} catch (err) {
 		console.error('[History] Failed to load history:', (err as Error).message);
@@ -121,6 +160,11 @@ export function persistHistory(): void {
 				});
 			}
 			if (Object.keys(entry).length > 0) out.plants[plantId] = entry;
+		}
+		for (const [plantId, list] of observations) {
+			if (list.length === 0) continue;
+			out.calibration ??= {};
+			out.calibration[plantId] = list.map((o) => [o.actionId, Math.round(o.at / 1000), o.dry, o.wet]);
 		}
 		fs.writeFileSync(HISTORY_FILE, JSON.stringify(out));
 		dirty = false;
@@ -198,4 +242,27 @@ export function getSamples(plantId: string, key: SeriesKey, sinceMs?: number): S
 
 export function dropPlantHistory(plantId: string): void {
 	if (history.delete(plantId)) dirty = true;
+	if (observations.delete(plantId)) dirty = true;
+}
+
+export function getArchivedObservations(plantId: string): ArchivedObservation[] {
+	return observations.get(plantId)?.slice() ?? [];
+}
+
+function sameObservation(a: ArchivedObservation, b: ArchivedObservation): boolean {
+	return a.actionId === b.actionId && a.at === b.at && a.dry === b.dry && a.wet === b.wet;
+}
+
+/**
+ * Sostituisce l'archivio della pianta. Lo decide predict.ts, che sa quali
+ * irrigazioni esistono ancora: una riga cancellata o spostata sparisce da qui
+ * nello stesso passaggio. Gira ad ogni poll, quindi segna da salvare solo se
+ * qualcosa è cambiato davvero.
+ */
+export function setArchivedObservations(plantId: string, list: ArchivedObservation[]): void {
+	const current = observations.get(plantId) ?? [];
+	if (current.length === list.length && current.every((o, i) => sameObservation(o, list[i]))) return;
+	if (list.length === 0) observations.delete(plantId);
+	else observations.set(plantId, list.map((o) => ({ ...o })));
+	dirty = true;
 }

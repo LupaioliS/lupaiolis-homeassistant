@@ -109,7 +109,9 @@ Once configured, the soil reading **wins over the calendar**: even if the
 plant isn't technically due for water yet, dry soil marks it as needing water
 right away, the watering pill on the card switches to a dedicated message
 instead of the usual "in N days", and the plant surfaces in the "needs
-attention" banner just like an overdue one.
+attention" banner just like an overdue one. What the banner lists is up to
+you: ⚙️ next to "History" toggles watering, fertilizing and health issues
+(fertilizing is off by default), saved on each device.
 
 **What counts as "dry" is the recalibrated percentage, not the raw one.**
 Capacitive probes drift: the same dry soil that read 28% in spring can read
@@ -231,6 +233,13 @@ It learns two things from the soil sensor plus your watering history:
   moments where you know water actually went in. The flip side: water without
   ever confirming it and the calibrated reading stays at 0% and keeps asking,
   which is what the prompt is there to catch.
+
+  Raw readings are kept for about two weeks, but the scale isn't lost with them:
+  once a watering's window has closed, its low and its peak are archived on
+  their own (two numbers per watering, in `history.json`). A plant watered once
+  a month keeps its 0% and 100% points between waterings instead of falling
+  back to the manual threshold — and its percentage no longer creeps back up as
+  the old readings expire.
 - **How fast it dries.** A linear fit over the readings since the last watering
   gives a dry-down rate in percentage points per day, which combined with the
   0% point yields the time left. The average interval between past waterings in

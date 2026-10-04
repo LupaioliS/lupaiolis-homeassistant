@@ -10,11 +10,11 @@ const HEARTBEAT_MS = 20_000;
 // chiudere silenziosamente una connessione SSE idle, lasciando il browser convinto di
 // essere ancora connesso finché non tenta una scrittura — risultato: frontend bloccato
 // su dati stantii finché l'utente non ricarica la pagina a mano.
-const heartbeat = setInterval(() => {
-	for (const client of clients) {
-		client.write(':\n\n');
-	}
-}, HEARTBEAT_MS);
+// È un evento vero e non un commento SSE (`:`), che il browser scarta senza dirlo
+// alla pagina: solo così il client può accorgersi che i ping hanno smesso di
+// arrivare — tipico sul telefono, dove la connessione muore in background senza
+// che EventSource se ne renda conto.
+const heartbeat = setInterval(() => broadcast({ type: 'ping' }), HEARTBEAT_MS);
 heartbeat.unref();
 
 export function addClient(res: SSEClient) {

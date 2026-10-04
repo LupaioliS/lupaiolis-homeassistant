@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.12.1
+
+Plants watered **once a month no longer lose their scale**. Raw soil readings are kept for about two weeks, and the calibration was rebuilt from them on every poll — so a watering older than that simply vanished: the 0% point fell back to the manual threshold or to "—", and with it the percentage drifted back up on its own.
+
+- Once a watering's window has closed, the low and the peak the sensor saw around it are **archived** in `history.json`: two numbers per watering, not thousands of samples. While the readings are still all there, the observation is recomputed live as before; once they start expiring, the archived copy takes over
+- Archived values are stored *before* the rain rule, so changing a watering's provenance on the history page still works after its readings are gone. Deleting a row, or moving its timestamp, drops its archived observation in the same pass
+- The archive starts filling now: waterings whose readings had already expired before this version can't be recovered, and affected plants rebuild their scale on the next waterings. Older versions ignore the new section of the file
+
+The page **no longer freezes** when left open. The server's keep-alive was an SSE comment, which the browser swallows without telling the page, so a connection that died silently — the norm on a phone in the background — looked open forever; and once a reconnection attempt got an HTTP error (Home Assistant's ingress while the session renews), the browser stopped retrying for good. The keep-alive is now a real event every 20s, and the page reopens the connection and resyncs when nothing has arrived for 50s, when it returns to the foreground, or when the network comes back.
+
+A **plant bar** in the style of stories sits at the top while you scroll: one tap jumps to a plant's card, the ring around each photo shows at a glance what it needs (blue water, amber fertilizer, red health — one arc per need), and the plant you're reading is highlighted as you scroll. 🔍 at the start of the bar takes you back to the search. Tapping a plant in "Needs attention" now jumps to its card too, instead of filtering the list.
+
+"Needs attention" is **configurable**: ⚙️ next to History toggles watering, fertilizing and health issues. Fertilizing is **off by default** — it's due by the calendar, and a banner listing every plant a few days late on fertilizer stops being read, which is exactly when it hides a thirsty one. The choice also drives the attention sort and the bar's rings, and is saved per device.
+
 ## 1.12.0
 
 A **history page** (📋 next to "Add plant") lists every logged action in a table you can edit: date and time, amount, provenance, notes — plus delete, plus adding a row after the fact. Inside the add-on container the JSON files aren't reachable, so until now a watering logged at the wrong time was permanent.

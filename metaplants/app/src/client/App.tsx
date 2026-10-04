@@ -5,15 +5,25 @@ import { PlantCard, isDoneToday } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { ActionDialog } from './components/ActionDialog';
 import { ActionHistory } from './components/ActionHistory';
+import { AttentionSettings } from './components/AttentionSettings';
+import { PlantNavigator, type PlantNeeds } from './components/PlantNavigator';
 import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
 import { getIntervalForSeason, isOverdue } from './plantStatus';
 import { assessWater } from './waterStatus';
+import { loadAttentionPrefs, saveAttentionPrefs, type AttentionPrefs } from './attentionPrefs';
 import { BASE_PATH } from './basePath';
 
 type SortOption = 'name' | 'species' | 'attention';
 
 const healthCategoryKey: Record<string, string> = { pest: 'pests', disease: 'diseases', fungus: 'fungi' };
+
+// Il server manda un ping ogni 20s (server/events.ts). Senza eventi per più di
+// così la connessione è morta anche se EventSource la crede aperta.
+const SSE_STALE_MS = 50_000;
+const SSE_WATCHDOG_MS = 10_000;
+
+const cardAnchorId = (plantId: string) => `plant-${plantId}`;
 
 export function App() {
 	const [plants, setPlants] = useState<Plant[]>([]);
@@ -26,6 +36,13 @@ export function App() {
 	const [sortBy, setSortBy] = useState<SortOption>('name');
 	const [soilWaterQueue, setSoilWaterQueue] = useState<Plant[]>([]);
 	const [showHistory, setShowHistory] = useState(false);
+	const [showSettings, setShowSettings] = useState(false);
+	const [attentionPrefs, setAttentionPrefs] = useState<AttentionPrefs>(loadAttentionPrefs);
+	const [activePlantId, setActivePlantId] = useState<string | null>(null);
+	// Pianta a cui scorrere appena la sua scheda è di nuovo nella griglia (dopo aver
+	// tolto un filtro di ricerca che la nascondeva).
+	const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
+	const searchInputRef = useRef<HTMLInputElement>(null);
 	// Ref keeps SSE handler (captured with [] deps) in sync with current plants state
 	const plantsRef = useRef<Plant[]>([]);
 	useEffect(() => { plantsRef.current = plants; }, [plants]);
@@ -67,16 +84,10 @@ export function App() {
 
 	// Real-time updates via SSE
 	useEffect(() => {
-		const evtSource = new EventSource(`${BASE_PATH}/api/events`);
-		// Il browser riconnette automaticamente dopo una caduta della connessione, ma
-		// gli eventi persi nel frattempo non vengono ritrasmessi: senza un resync qui,
-		// il frontend resta con dati stantii finché non arriva un nuovo evento o l'utente
-		// ricarica la pagina a mano. onopen scatta sia alla prima connessione che a ogni
-		// riconnessione, quindi un fetch completo qui copre entrambi i casi.
-		evtSource.onopen = () => {
-			loadPlants();
-		};
-		evtSource.onmessage = (event) => {
+		let source: EventSource | null = null;
+		let lastEventAt = Date.now();
+
+		const handleMessage = (event: MessageEvent) => {
 			try {
 				const data = JSON.parse(event.data);
 				if (data.type === 'plant-updated' || data.type === 'plant-created') {
@@ -108,9 +119,53 @@ export function App() {
 					// e le ultime quantità usate, che vivono qui e non nel payload della pianta.
 					loadPlants();
 				}
+				// 'ping' non porta dati: conta solo che sia arrivato.
 			} catch { /* ignore parse errors */ }
 		};
-		return () => evtSource.close();
+
+		const connect = () => {
+			source?.close();
+			lastEventAt = Date.now();
+			source = new EventSource(`${BASE_PATH}/api/events`);
+			// Gli eventi persi mentre la connessione era giù non vengono ritrasmessi:
+			// onopen scatta alla prima connessione e ad ogni riconnessione, quindi un
+			// fetch completo qui riallinea il frontend in entrambi i casi.
+			source.onopen = () => {
+				lastEventAt = Date.now();
+				loadPlants().catch(() => { /* riprova alla prossima riconnessione */ });
+			};
+			source.onmessage = (event) => {
+				lastEventAt = Date.now();
+				handleMessage(event);
+			};
+		};
+
+		// La riconnessione automatica del browser non basta. Sul telefono, in
+		// background, la connessione muore senza che EventSource se ne accorga e al
+		// ritorno resta "aperta" e muta; e se un tentativo riceve un errore HTTP (es.
+		// l'ingress di HA mentre la sessione si rinnova) EventSource smette di
+		// riprovare per sempre. In entrambi i casi la pagina restava ferma finché non
+		// la ricaricavi a mano. Il server manda un ping ogni 20s: se non arriva
+		// niente da troppo, si riapre la connessione da capo.
+		const isStale = () =>
+			source == null || source.readyState === EventSource.CLOSED || Date.now() - lastEventAt > SSE_STALE_MS;
+		const reconnectIfStale = () => {
+			if (document.visibilityState === 'visible' && isStale()) connect();
+		};
+
+		connect();
+		const watchdog = window.setInterval(reconnectIfStale, SSE_WATCHDOG_MS);
+		// Al ritorno in primo piano non si aspetta il watchdog: i timer erano congelati.
+		document.addEventListener('visibilitychange', reconnectIfStale);
+		window.addEventListener('pageshow', reconnectIfStale);
+		window.addEventListener('online', connect);
+		return () => {
+			window.clearInterval(watchdog);
+			document.removeEventListener('visibilitychange', reconnectIfStale);
+			window.removeEventListener('pageshow', reconnectIfStale);
+			window.removeEventListener('online', connect);
+			source?.close();
+		};
 	}, []);
 
 	const patchPlant = useCallback((updated: Plant) => {
@@ -172,19 +227,28 @@ export function App() {
 
 	const currentSeason = getCurrentSeason();
 
-	const getAttention = (plant: Plant) => {
+	// Banner, ordinamento per attenzioni e anelli della barra in cima leggono tutti
+	// da qui, quindi rispettano tutti la stessa scelta su cosa conta come "attenzione".
+	const getAttention = (plant: Plant): PlantNeeds => {
 		const fertIntervalDays = getIntervalForSeason(plant.fertilizingSchedule, currentSeason, plant.fertilizingIntervalDays ?? 14);
 		// Stessa logica della scheda (sensore > stima matura > programma): banner e
 		// scheda non possono più dire cose diverse sulla stessa pianta.
-		const needsWater = assessWater(plant, readings[plant.id], currentSeason).overdue;
-		const needsFertilize = isOverdue(plant.lastFertilized, fertIntervalDays);
-		const activeIssueCount = (plant.healthIssues ?? []).filter((i) => !i.resolvedDate).length;
+		const needsWater = attentionPrefs.water && assessWater(plant, readings[plant.id], currentSeason).overdue;
+		const needsFertilize = attentionPrefs.fertilize && isOverdue(plant.lastFertilized, fertIntervalDays);
+		const activeIssueCount = attentionPrefs.health ? (plant.healthIssues ?? []).filter((i) => !i.resolvedDate).length : 0;
 		return { needsWater, needsFertilize, activeIssueCount };
 	};
 
+	const needsByPlant: Record<string, PlantNeeds> = Object.fromEntries(plants.map((plant) => [plant.id, getAttention(plant)]));
+
 	const attentionPlants = plants
-		.map((plant) => ({ plant, ...getAttention(plant) }))
+		.map((plant) => ({ plant, ...needsByPlant[plant.id] }))
 		.filter((p) => p.needsWater || p.needsFertilize || p.activeIssueCount > 0);
+
+	const handleAttentionPrefsChange = (prefs: AttentionPrefs) => {
+		setAttentionPrefs(prefs);
+		saveAttentionPrefs(prefs);
+	};
 
 	const term = searchTerm.trim().toLowerCase();
 	const visiblePlants = plants.filter((plant) => {
@@ -206,7 +270,7 @@ export function App() {
 		if (sortBy === 'species') return a.species.localeCompare(b.species);
 		if (sortBy === 'attention') {
 			const scoreOf = (p: Plant) => {
-				const { needsWater, needsFertilize, activeIssueCount } = getAttention(p);
+				const { needsWater, needsFertilize, activeIssueCount } = needsByPlant[p.id];
 				return (needsWater ? 1 : 0) + (needsFertilize ? 1 : 0) + activeIssueCount;
 			};
 			const diff = scoreOf(b) - scoreOf(a);
@@ -214,6 +278,69 @@ export function App() {
 		}
 		return (a.nickname || a.name).localeCompare(b.nickname || b.name);
 	});
+
+	const scrollToCard = (plantId: string) => {
+		const card = document.getElementById(cardAnchorId(plantId));
+		if (!card) return;
+		card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		setActivePlantId(plantId);
+		// Un lampo sulla scheda: con due colonne non è ovvio quale delle due fosse.
+		card.classList.remove('plant-card-flash');
+		void card.offsetWidth; // riavvia l'animazione se la stessa scheda viene scelta due volte
+		card.classList.add('plant-card-flash');
+		card.addEventListener('animationend', () => card.classList.remove('plant-card-flash'), { once: true });
+	};
+
+	// Banner e barra portano alla scheda; se la ricerca la nasconde, prima si toglie il filtro.
+	const goToPlant = (plantId: string) => {
+		if (sortedPlants.some((p) => p.id === plantId)) {
+			scrollToCard(plantId);
+		} else {
+			setSearchTerm('');
+			setPendingScrollId(plantId);
+		}
+	};
+
+	useEffect(() => {
+		if (!pendingScrollId) return;
+		scrollToCard(pendingScrollId);
+		setPendingScrollId(null);
+	}, [pendingScrollId]);
+
+	const focusSearch = () => {
+		window.scrollTo({ top: 0, behavior: 'smooth' });
+		searchInputRef.current?.focus({ preventScroll: true });
+	};
+
+	// Quale scheda sta in cima allo schermo, sotto la barra: è la pianta evidenziata
+	// nella barra, che si sposta da sola mentre si scorre.
+	const visibleIdsKey = sortedPlants.map((p) => p.id).join(',');
+	useEffect(() => {
+		if (!visibleIdsKey || typeof IntersectionObserver === 'undefined') return;
+		const order = visibleIdsKey.split(',');
+		const intersecting = new Set<string>();
+		const observer = new IntersectionObserver(
+			(entries) => {
+				for (const entry of entries) {
+					const id = (entry.target as HTMLElement).dataset.plantId;
+					if (!id) continue;
+					if (entry.isIntersecting) intersecting.add(id);
+					else intersecting.delete(id);
+				}
+				const first = order.find((id) => intersecting.has(id));
+				if (first) setActivePlantId(first);
+			},
+			// Una fascia subito sotto la barra in cima: conta la scheda che si sta leggendo.
+			{ rootMargin: '-120px 0px -55% 0px' },
+		);
+		for (const id of order) {
+			const card = document.getElementById(cardAnchorId(id));
+			if (!card) continue;
+			card.dataset.plantId = id;
+			observer.observe(card);
+		}
+		return () => observer.disconnect();
+	}, [visibleIdsKey, showHistory]);
 
 	if (showHistory) {
 		return (
@@ -235,6 +362,14 @@ export function App() {
 			</header>
 
 			<div style={{ marginBottom: 20, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+				<button
+					className="btn btn-secondary"
+					onClick={() => setShowSettings(true)}
+					title={t('app.settings')}
+					aria-label={t('app.settings')}
+				>
+					⚙️
+				</button>
 				<button className="btn btn-secondary" onClick={() => setShowHistory(true)}>
 					{t('history.open')}
 				</button>
@@ -256,7 +391,7 @@ export function App() {
 							<li
 								key={plant.id}
 								className="attention-banner-pill"
-								onClick={() => setSearchTerm(plant.nickname || plant.name)}
+								onClick={() => goToPlant(plant.id)}
 							>
 								<strong>{plant.nickname || plant.name}</strong>
 								{needsWater && <span className="attention-banner-tag">💧</span>}
@@ -272,6 +407,7 @@ export function App() {
 				<div className="plant-controls">
 					<div className="plant-search-wrap">
 						<input
+							ref={searchInputRef}
 							type="text"
 							className="plant-search"
 							placeholder={t('app.searchPlaceholder')}
@@ -301,6 +437,16 @@ export function App() {
 				</div>
 			)}
 
+			{sortedPlants.length > 1 && (
+				<PlantNavigator
+					plants={sortedPlants}
+					needs={needsByPlant}
+					activeId={activePlantId}
+					onSelect={goToPlant}
+					onSearch={focusSearch}
+				/>
+			)}
+
 			{plants.length === 0 ? (
 				<div className="empty-state">
 					<div style={{ fontSize: '3rem' }}>🌿</div>
@@ -318,6 +464,7 @@ export function App() {
 							plant={plant}
 							readings={readings[plant.id]}
 							actions={actionsByPlant[plant.id]}
+							anchorId={cardAnchorId(plant.id)}
 							onWater={(amountMl, source) => handleWater(plant.id, amountMl, source)}
 							onFertilize={(amountGrams) => handleFertilize(plant.id, amountGrams)}
 							onEdit={() => handleEdit(plant)}
@@ -336,6 +483,14 @@ export function App() {
 					subtitle={t('actions.soilJumpPrompt').replace('{name}', soilWaterQueue[0].nickname || soilWaterQueue[0].name)}
 					onConfirm={handleSoilQueueConfirm}
 					onClose={handleSoilQueueSkip}
+				/>
+			)}
+
+			{showSettings && (
+				<AttentionSettings
+					prefs={attentionPrefs}
+					onChange={handleAttentionPrefsChange}
+					onClose={() => setShowSettings(false)}
 				/>
 			)}
 
