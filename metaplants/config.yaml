@@ -1,5 +1,5 @@
 name: "MetaPlants"
-version: "1.14.0"
+version: "1.15.0"
 slug: "metaplants"
 description: "Home Assistant add-on to manage household plants: watering, fertilizing, repotting, pruning, and health issue history"
 arch:
@@ -18,6 +18,9 @@ options:
   ha_discovery_prefix: "homeassistant"
   lang: "it"
   sensor_poll_seconds: 20
+  gemini_api_key: ""
+  gemini_model: "gemini-2.5-flash-lite"
+  assistant_hour: 8
 schema:
   mqtt_url: str
   mqtt_user: str?
@@ -25,3 +28,6 @@ schema:
   ha_discovery_prefix: str
   lang: "list(it|en)"
   sensor_poll_seconds: "int(5,300)"
+  gemini_api_key: password?
+  gemini_model: str?
+  assistant_hour: "int(0,23)?"

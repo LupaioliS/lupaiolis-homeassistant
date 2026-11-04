@@ -10,6 +10,7 @@ export const mqtt_it = {
 		tomorrow: 'domani',
 		soilSensorWater: 'da irrigare (sensore terreno)',
 		aiSoilWater: 'da irrigare (0% sulla scala della pianta)',
+		soilStillMoist: 'terreno ancora umido',
 	},
 	watering: {
 		never: 'mai irrigata',

@@ -98,6 +98,30 @@ export function normalizeDate(value?: string | null): string | undefined {
  * mostrare un'irrigazione che non esiste più. Tocca solo i tipi passati, perché
  * rinvaso e potatura si possono impostare a mano dalla scheda senza azione.
  */
+// Un'irrigazione registrata fino a tanto prima della risalita la spiega comunque:
+// è la stessa finestra in cui la calibrazione cerca la risalita (predict.ts).
+const SOIL_JUMP_ACTION_LAG_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * Un'irrigazione registrata da qualunque parte (app, pulsante HA, MQTT) risponde
+ * già alla domanda "hai innaffiato?" per la risalita che la segue o la precede di
+ * poco. Prima lo decideva solo il client, e con "innaffiata oggi" invece che con
+ * gli orari: una pioggia la sera dopo un'irrigazione al mattino veniva scartata
+ * in silenzio, e un'irrigazione dal pulsante HA lasciava la domanda appesa per
+ * giorni, bloccando il rilevamento delle successive.
+ */
+function clearAnsweredSoilJump(plantId: string, actionDate: string) {
+	const plants = readPlants();
+	const plant = plants.find((p) => p.id === plantId);
+	const sensors = plant?.sensors;
+	if (!plant || !sensors?.soilJumpPendingAck) return;
+	const riseAt = new Date(sensors.soilJumpRiseAt ?? sensors.lastSoilJumpAt ?? '').getTime();
+	const at = new Date(actionDate).getTime();
+	if (Number.isFinite(riseAt) && at < riseAt - SOIL_JUMP_ACTION_LAG_MS) return;
+	plant.sensors = { ...sensors, soilJumpPendingAck: false };
+	writePlants(plants);
+}
+
 function syncLastDone(plantId: string, types: ActionType[]) {
 	const plants = readPlants();
 	const index = plants.findIndex((p) => p.id === plantId);
@@ -201,6 +225,7 @@ export const store = {
 		actions.push(action);
 		writeActions(actions);
 		syncLastDone(plantId, [type]);
+		if (type === 'water') clearAnsweredSoilJump(plantId, action.date);
 
 		return action;
 	},

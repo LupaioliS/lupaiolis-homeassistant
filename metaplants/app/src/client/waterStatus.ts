@@ -36,8 +36,10 @@ export interface WaterAssessment {
  *     lettura grezza: il sensore deriva, la scala si ritara ad ogni innaffiatura
  *     registrata (vedi shared/soil.ts). La soglia manuale resta l'innesco finché
  *     non c'è ancora una scala;
- *  2. stima interna, ma solo quando ha imparato abbastanza (confidence "high");
- *  3. programma stagionale.
+ *  2. terreno NON secco, con un sensore che legge: nessuna allerta, qualunque cosa
+ *     dicano calendario e stima (che restano informazioni);
+ *  3. stima interna, ma solo quando ha imparato abbastanza (confidence "high");
+ *  4. programma stagionale — solo senza sensore, o con il sensore che non legge.
  */
 export function assessWater(plant: Plant, readings: PlantReadings | undefined, season: Season): WaterAssessment {
 	const intervalDays = getIntervalForSeason(plant.wateringSchedule, season, plant.wateringIntervalDays ?? 3);
@@ -58,6 +60,17 @@ export function assessWater(plant: Plant, readings: PlantReadings | undefined, s
 
 	if (soil.needsWater) {
 		return { overdue: true, source: 'soil', ...common };
+	}
+	// Un sensore che legge e sa cos'è "secco" (scala o soglia) ha l'ultima parola:
+	// se dice che il terreno è ancora umido, né il calendario né la stima possono
+	// chiedere acqua. Prima il calendario scaduto diceva "innaffia" con il terreno
+	// al 16% della scala. La stima resta come "fra quanto", non come allerta.
+	if (soil.source !== 'none') {
+		return {
+			overdue: false,
+			source: predictionLeads ? 'prediction' : 'soil',
+			...common,
+		};
 	}
 	if (predictionLeads && prediction) {
 		return { overdue: prediction.daysLeft <= DUE_NOW_DAYS, source: 'prediction', ...common };

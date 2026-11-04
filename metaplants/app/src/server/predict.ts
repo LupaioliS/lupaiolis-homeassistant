@@ -22,9 +22,24 @@ import { findRises, samplePeak, sampleTrough } from '../shared/soil';
  * sensore non ha ancora abbastanza dati.
  */
 
-// Finestra dopo l'irrigazione in cui il terreno è ancora saturo: i campioni qui
+// Il terreno "pieno" non è il picco ma il livello a cui si assesta: dai dati reali
+// il sensore schizza per pochi minuti e poi scende molto (Strelitzia 90 → 55 in
+// un'ora, Monstera 96 → 76). Col picco come 100% una pianta appena bagnata leggeva
+// ~35%. Il livello assestato è la mediana delle letture in questa finestra dopo la
+// risalita, con almeno SETTLED_MIN_SAMPLES letture.
+const SETTLE_FROM_MS = 1 * HOUR_MS;
+const SETTLE_TO_MS = 4 * HOUR_MS;
+const SETTLED_MIN_SAMPLES = 3;
+// Finestra dopo l'acqua in cui il terreno si sta ancora assestando: i campioni qui
 // dentro raccontano l'assorbimento, non l'asciugatura, e falserebbero la pendenza.
-const SATURATION_MS = 2 * HOUR_MS;
+const SATURATION_MS = SETTLE_TO_MS;
+// Un'irrigazione data quando la pianta era ancora sopra questa % della propria
+// scala è un rabbocco (prima di partire, "già che ci sono"), non il livello a cui
+// la pianta va innaffiata: non insegna il punto secco. Dai dati reali: Rosmarino
+// innaffiato una volta a terreno umido e lo 0% saltato da 34 a 43.
+const EARLY_WATERING_LEVEL = 40;
+// Risalite più vicine di così a un'irrigazione registrata sono la stessa acqua.
+const SAME_WATER_MS = 12 * HOUR_MS;
 // Entro questa finestra dopo l'irrigazione si cerca il picco = terreno "pieno".
 const WET_PEAK_WINDOW_MS = 4 * HOUR_MS;
 // L'azione può essere registrata parecchio dopo l'irrigazione vera: il prompt "hai
@@ -166,8 +181,12 @@ interface CycleObservation {
 	amount?: WaterAmount;
 	/** Minimo prima dell'acqua: il livello a cui questa pianta viene innaffiata. */
 	dry: number | null;
-	/** Massimo attorno all'irrigazione: il livello del terreno pieno. */
+	/** Livello assestato dopo l'acqua: il terreno pieno. */
 	wet: number | null;
+	/** Picco grezzo subito dopo l'acqua, solo informativo. */
+	peak: number;
+	/** Il punto secco è stato scartato perché l'acqua è arrivata a terreno ancora umido. */
+	early?: boolean;
 }
 
 /** Primo indice con `t >= time`; la serie è in ordine cronologico. */
@@ -193,7 +212,20 @@ function sliceByTime(samples: Sample[], from: number, to: number): Sample[] {
 /** Secco e bagnato visti attorno a un'irrigazione, prima di sapere chi ha dato l'acqua. */
 interface RawObservation {
 	dry: number | null;
+	/** Picco dopo la risalita. */
 	wet: number;
+	/** Livello assestato; null finché la finestra non è completa o se il sensore era giù. */
+	settled: number | null;
+}
+
+/**
+ * Il livello a cui il terreno si ferma dopo la risalita delle `riseAt`.
+ * null se le letture non bastano: finestra non ancora passata o sensore offline.
+ */
+function settledLevel(soil: Sample[], riseAt: number): number | null {
+	const window = sliceByTime(soil, riseAt + SETTLE_FROM_MS, riseAt + SETTLE_TO_MS);
+	if (window.length < SETTLED_MIN_SAMPLES) return null;
+	return median(window.map((s) => s.v));
 }
 
 /**
@@ -235,6 +267,7 @@ function observeWatering(soil: Sample[], w: number, riseDelta?: number): RawObse
 	return {
 		dry: dryUsable ? Math.min(...beforeRise.map(sampleTrough)) : null,
 		wet: Math.max(...fromRise.map(samplePeak)),
+		settled: rise != null ? settledLevel(soil, around[rise].t) : null,
 	};
 }
 
@@ -246,7 +279,7 @@ function withSource({ at, source, amount }: WateringEvent, raw: RawObservation):
 	// insegnerebbe che quel livello umido è il momento di dare acqua: due piogge
 	// così di fila e la pianta comincia a chiedere acqua da bagnata.
 	const decidedWatering = source !== 'rain';
-	return { at, source, amount, dry: decidedWatering ? raw.dry : null, wet: raw.wet };
+	return { at, source, amount, dry: decidedWatering ? raw.dry : null, wet: raw.settled, peak: raw.wet };
 }
 
 /**
@@ -296,15 +329,19 @@ function observeCyclesArchived(
 	for (const event of waterings) {
 		const frozen = event.id != null ? archived.get(event.id) : undefined;
 		const windowComplete = oldest <= event.at - ACTION_LAG_MS;
-		const raw = frozen && frozen.at === event.at && !windowComplete
-			? { dry: frozen.dry, wet: frozen.wet }
+		// Le righe archiviate prima della 1.15.0 non hanno il livello assestato: il loro
+		// picco non vale come 100%, quindi insegnano solo il punto secco.
+		const raw: RawObservation | null = frozen && frozen.at === event.at && !windowComplete
+			? { dry: frozen.dry, wet: frozen.wet, settled: frozen.settled ?? null }
 			: observeWatering(soil, event.at, riseDelta);
 		if (!raw) continue;
 
 		observations.push(withSource(event, raw));
-		// Si archivia solo a finestra chiusa: prima il picco può ancora salire.
-		if (event.id != null && now >= event.at + WET_PEAK_WINDOW_MS) {
-			keep.push({ actionId: event.id, at: event.at, dry: raw.dry, wet: raw.wet });
+		// Si archivia solo a finestra chiusa: prima il picco può ancora salire e il
+		// livello assestato non c'è ancora (la risalita può arrivare fino a
+		// WET_PEAK_WINDOW_MS dopo l'azione, l'assestamento SETTLE_TO_MS dopo lei).
+		if (event.id != null && now >= event.at + WET_PEAK_WINDOW_MS + SETTLE_TO_MS) {
+			keep.push({ actionId: event.id, at: event.at, dry: raw.dry, wet: raw.wet, settled: raw.settled });
 		}
 	}
 
@@ -347,11 +384,37 @@ function calibrate(
 	fallbackDry?: number,
 	riseDelta?: number,
 ): SoilCalibration | null {
+	const all = observeCyclesArchived(plantId, soil, waterings, now, riseDelta);
+
+	// In ordine cronologico, ogni irrigazione viene giudicata con la scala in vigore
+	// QUANDO è stata data: se la pianta era ancora sopra il 40% della scala era un rabbocco,
+	// e il suo minimo non dice a che livello questa pianta va innaffiata.
+	const dryUsed: number[] = [];
+	const wetUsed: number[] = [];
+	for (let i = 0; i < all.length; i++) {
+		const o = all[i];
+		if (o.dry != null && dryUsed.length > 0 && wetUsed.length > 0) {
+			const d = median(dryUsed.slice(-CALIBRATION_CYCLES).map((k) => all[k].dry!));
+			const w = resolveWetPoint(wetUsed.slice(-CALIBRATION_CYCLES).map((k) => all[k].wet!));
+			if (w - d >= MIN_CALIBRATION_SPAN && ((o.dry - d) / (w - d)) * 100 > EARLY_WATERING_LEVEL) {
+				o.early = true;
+			}
+		}
+		if (o.dry != null && !o.early) dryUsed.push(i);
+		if (o.wet != null) wetUsed.push(i);
+	}
+
 	// Solo le ultime irrigazioni osservate: la scala deve descrivere il sensore com'è
-	// adesso, non la media di com'era nelle ultime due settimane.
-	const recent = observeCyclesArchived(plantId, soil, waterings, now, riseDelta).slice(-CALIBRATION_CYCLES);
-	const dryValues = recent.map((o) => o.dry).filter((v): v is number => v != null);
-	const wetValues = recent.map((o) => o.wet).filter((v): v is number => v != null);
+	// adesso, non la media di com'era nelle ultime settimane.
+	const dryIdx = dryUsed.slice(-CALIBRATION_CYCLES);
+	const wetIdx = wetUsed.slice(-CALIBRATION_CYCLES);
+	const dryValues = dryIdx.map((k) => all[k].dry!);
+	const wetValues = wetIdx.map((k) => all[k].wet!);
+	const used = [...new Set([...dryIdx, ...wetIdx])].sort((a, b) => a - b);
+	// Mostrate quelle usate più le eventuali più recenti scartate: un rabbocco
+	// ignorato deve vedersi, o la scala sembra non accorgersi dell'irrigazione.
+	const shownFrom = Math.min(used[0] ?? all.length, Math.max(0, all.length - CALIBRATION_CYCLES));
+	const recent = all.slice(shownFrom);
 	// Esposte così com'è: il punto secco è la mediana dei minimi, quindi un ciclo
 	// con una lettura sballata sposta la scala senza comparire da nessuna parte.
 	const observations: CalibrationObservation[] = recent.map((o) => ({
@@ -360,6 +423,8 @@ function calibrate(
 		amount: o.amount,
 		dry: o.dry == null ? null : round(o.dry),
 		wet: o.wet == null ? null : round(o.wet),
+		peak: round(o.peak),
+		...(o.early ? { early: true } : {}),
 	}));
 
 	if (dryValues.length === 0 || wetValues.length === 0) {
@@ -369,6 +434,8 @@ function calibrate(
 		// scatta esattamente dove scattava la soglia grezza, finché non arriva la prima
 		// irrigazione registrata.
 		if (fallbackDry == null || soil.length === 0) return null;
+		// Senza irrigazioni osservate il "pieno" è il massimo visto: approssimato per
+		// eccesso, ma vale solo finché non arriva la prima irrigazione registrata.
 		const observedPeak = Math.max(...soil.map(samplePeak));
 		if (observedPeak - fallbackDry < MIN_CALIBRATION_SPAN) return null;
 		return { dryPoint: round(fallbackDry), wetPoint: round(observedPeak), samples: 0, lastCalibratedAt: null, observations };
@@ -388,8 +455,8 @@ function calibrate(
 	return {
 		dryPoint: round(dryPoint),
 		wetPoint: round(wetPoint),
-		samples: recent.length,
-		lastCalibratedAt: new Date(recent[recent.length - 1].at).toISOString(),
+		samples: used.length,
+		lastCalibratedAt: new Date(all[used[used.length - 1]].at).toISOString(),
 		observations,
 	};
 }
@@ -405,9 +472,36 @@ function calibrate(
  * Vive fuori da `predictWatering` perché quella restituisce `null` finché non ha
  * abbastanza dati per una stima — cioè proprio quando sapere questo serve di più.
  */
-export function previewDryPoint(plant: Plant, now: number = Date.now()): number | null {
+export function previewDryPoint(plant: Plant, now: number = Date.now(), calibration?: SoilCalibration | null): number | null {
 	const observation = observeCycles(getSamples(plant.id, 'soil'), [{ at: now }], plant.sensors?.soilJumpDelta)[0];
-	return observation?.dry != null ? round(observation.dry) : null;
+	if (observation?.dry == null) return null;
+	// Stessa regola del rabbocco di `calibrate`: sopra il 40% della scala non insegnerebbe niente.
+	if (calibration && calibration.samples > 0 && isEarly(observation.dry, calibration)) return null;
+	return round(observation.dry);
+}
+
+function isEarly(dry: number, calibration: SoilCalibration): boolean {
+	const span = calibration.wetPoint - calibration.dryPoint;
+	return span >= MIN_CALIBRATION_SPAN && ((dry - calibration.dryPoint) / span) * 100 > EARLY_WATERING_LEVEL;
+}
+
+/**
+ * Gli istanti da cui il terreno ricomincia ad asciugarsi: le irrigazioni registrate
+ * e le risalite del sensore, anche quelle mai confermate. Un'irrigazione non
+ * registrata a metà ciclo (o la pioggia) per la pendenza conta eccome: senza,
+ * la retta passava sopra il salto e la velocità usciva dimezzata (Strelitzia
+ * 0.83 punti/giorno invece di ~2). Non tocca la scala né l'allerta, che restano
+ * legate alle sole irrigazioni registrate.
+ */
+function wettingTimes(soil: Sample[], waterings: number[], riseDelta?: number): number[] {
+	const times = [...waterings, ...findRises(soil, riseDelta).map((i) => soil[i].t)].sort((a, b) => a - b);
+	// Risalita e pulsante della stessa acqua: vale il più tardo, da lì si asciuga.
+	const merged: number[] = [];
+	for (const t of times) {
+		if (merged.length > 0 && t - merged[merged.length - 1] < SAME_WATER_MS) merged[merged.length - 1] = t;
+		else merged.push(t);
+	}
+	return merged;
 }
 
 /** Velocità di asciugatura del ciclo in corso; se non basta, media dei cicli passati. */
@@ -477,7 +571,7 @@ export function predictWatering(
 	const cycleInfo = averageCycle(waterings);
 
 	const calibration = calibrate(plant.id, soil, events, now, plant.sensors?.soilHumidityThreshold, plant.sensors?.soilJumpDelta);
-	const dryRate = soil.length > 0 ? estimateDryRate(soil, waterings) : null;
+	const dryRate = soil.length > 0 ? estimateDryRate(soil, wettingTimes(soil, waterings, plant.sensors?.soilJumpDelta)) : null;
 
 	// Stima dal sensore: quanto manca a scendere fino al livello a cui innaffi.
 	let sensorDays: number | null = null;

@@ -113,6 +113,13 @@ attention" banner just like an overdue one. What the banner lists is up to
 you: ⚙️ next to "History" toggles watering, fertilizing and health issues
 (fertilizing is off by default), saved on each device.
 
+It works the other way round too: **while the sensor is reading and the soil
+isn't dry, nothing asks for water** — not an overdue calendar, not an estimate
+that reached zero. The card says "soil still moist", the `watering` MQTT state
+says the same, and `watering_next` follows the estimate instead of a calendar
+date already in the past. The calendar only takes over again if the sensor stops
+reporting.
+
 **What counts as "dry" is the recalibrated percentage, not the raw one.**
 Capacitive probes drift: the same dry soil that read 28% in spring can read
 36% a month later, and a threshold you typed once ages along with it — the
@@ -197,7 +204,16 @@ rather than manual — which is what an automation driving a valve should send.
 When the soil reading jumps up sharply, someone probably watered the plant
 without logging it. MetaPlants notices and asks: a dialog appears (immediately
 if the app is open, otherwise next time you open it) offering to log the
-watering with the usual amount picker.
+watering with the usual amount picker. Answering "yes" logs the watering **at the
+time the soil rose**, not at the time you answer — reply in the evening, or two
+days later, and the schedule and the calibration still see it where it happened.
+Only the explicit buttons close the dialog: a stray tap outside it on a phone
+isn't a "no".
+
+A watering logged from anywhere — the app, the Home Assistant button, MQTT —
+answers the question by itself when it's close to the rise, so the dialog
+disappears on every device and never logs the same water twice. A question
+nobody answers expires after three days.
 
 Detection compares a reading against the **lowest reading of the 45 minutes
 before it**: a rise of 10 percentage points or more (adjustable per plant in
@@ -222,20 +238,30 @@ It learns two things from the soil sensor plus your watering history:
   this plant's "empty", not 30% of anything meaningful. Both reference points are
   anchored to the **rise in the curve** — the moment the water actually reached
   the soil — not to the moment you pressed the button: the 0% point is the lowest
-  reading before that rise, the 100% point the peak from there on. So logging the
+  reading before that rise, the 100% point the level the soil **settles at**
+  between one and four hours after it (the median of those readings). Not the
+  peak: probes spike for a few minutes when water arrives and then drop a lot
+  (real data: 90 → 55 within an hour), and with the peak as 100% a plant watered
+  that very morning read 35%. So logging the
   watering ten minutes or ten hours late doesn't change what gets learned, and if
   there isn't at least half an hour of readings before the rise, that watering
   contributes no 0% point at all rather than a wrong one. MetaPlants then shows the
   recalibrated value on the card (🧠 pill) with the raw one beside it. Tap it —
   or hover it with a mouse — to see both reference points *and the individual
   waterings they're built from*: date, the low seen before each one, the peak
-  seen around it. The 0% point is the median of those lows, so that list is
+  seen around it — plus, when it was ignored, why. The 0% point is the median of those lows, so that list is
   where you'd spot a cycle whose low came from a sensor dropout rather than
   from dry soil. The same panel also previews what logging a watering *right
   now* would teach ("dry = 38.7%"), or warns that it would teach nothing yet —
   so you know before pressing, not after. "Full" is treated as an extreme
   rather than an average — a generous soak counts for more than a top-up — while
   still ignoring a single freak reading once there are several cycles to compare.
+
+  A watering given while the plant was **still above 40% of its own scale** is a
+  top-up (before leaving, or "while I'm at it"): it still counts for the 100%
+  point, but its low doesn't move the 0% point. Without this rule one early
+  watering shifted a rosemary's 0% from 34 to 43 raw — i.e. it started asking
+  for water while damp.
 
   The scale only moves on **logged waterings**: the "water" button (in the app,
   from the Home Assistant button entity, or a manually added action) or a
@@ -253,7 +279,9 @@ It learns two things from the soil sensor plus your watering history:
   back to the manual threshold — and its percentage no longer creeps back up as
   the old readings expire.
 - **How fast it dries.** A linear fit over the readings since the last watering
-  gives a dry-down rate in percentage points per day, which combined with the
+  — or since the last rise in the curve, even an unlogged one (rain, a watering
+  you never confirmed): otherwise the line runs across the jump and the rate
+  comes out halved — gives a dry-down rate in percentage points per day, which combined with the
   0% point yields the time left. The average interval between past waterings in
   the current season acts as a second opinion, blended in proportion to how
   clean the fit is.
@@ -391,6 +419,33 @@ action:
 mode: single
 ```
 
+
+## Assistant (Gemini)
+
+Optional. With a [Google AI Studio](https://aistudio.google.com/apikey) API key in
+the `gemini_api_key` option, MetaPlants runs **one check a day** (from
+`assistant_hour`, default 8:00, container time) and shows the result as cards at
+the top of the page:
+
+- 💡 **advice** tied to your data — a plant drying faster than its schedule, fertilizing
+  in the rest season, a health issue open for weeks;
+- ❓ **questions** with tap-to-answer options. Answers go into the next day's check,
+  which is how the assistant learns about your home without a conversation;
+- 🛠️ **actions** from a fixed catalog: change a seasonal watering or fertilizing
+  interval, set the manual soil threshold, log or resolve a health issue, add a note.
+  The assistant can't log waterings or fertilizing — only you know what you did.
+
+Small, reversible changes (a note, an interval nudged by up to 30%) are applied
+automatically and shown with an **Undo** button; everything else — health, thresholds,
+bigger changes — waits for **Apply**. The model can ask to auto-apply, but the
+add-on decides.
+
+It's built to cost little: a single request per day, plain data (no photos) as
+compact JSON, a fixed JSON response, and `gemini-2.5-flash-lite` by default
+(`gemini_model` to change it). With 14 plants a check is about 3,500 input
+tokens — usually inside the free tier. "Ask now" runs an extra check, at most
+once every 10 minutes. Without a key the assistant is simply off. Cards live in
+`assistant.json` in the add-on data folder.
 
 ## Internal Database: Structure and Stored Data
 

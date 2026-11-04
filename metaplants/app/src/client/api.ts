@@ -1,4 +1,4 @@
-import type { ActionType, Plant, PlantAction, PlantActionOptions, PlantActionPatch, HealthIssue, ProductUsage, PlantReadings, HaEntityList, SensorSample } from '../shared/types';
+import type { ActionType, Plant, PlantAction, PlantActionOptions, PlantActionPatch, HealthIssue, ProductUsage, PlantReadings, HaEntityList, SensorSample, AssistantState } from '../shared/types';
 import { BASE_PATH } from './basePath';
 import { prepareImageForUpload } from './imageResize';
 
@@ -75,6 +75,12 @@ export const api = {
 		request<{ series: string; from: number; samples: SensorSample[] }>(
 			`/plants/${encodeURIComponent(plantId)}/history?days=${days}&series=${series}`,
 		),
+	getAssistant: () => request<AssistantState>('/assistant'),
+	runAssistant: () => request<AssistantState>('/assistant/run', { method: 'POST' }),
+	answerAssistantCard: (id: string, answer: string) =>
+		request<AssistantState>(`/assistant/cards/${encodeURIComponent(id)}/answer`, { method: 'POST', body: JSON.stringify({ answer }) }),
+	assistantCardAction: (id: string, verb: 'apply' | 'undo' | 'dismiss') =>
+		request<AssistantState>(`/assistant/cards/${encodeURIComponent(id)}/${verb}`, { method: 'POST' }),
 	acknowledgeSoilJump: (plantId: string) =>
 		request<{ success: boolean }>(`/plants/${encodeURIComponent(plantId)}/ack-soil-jump`, { method: 'POST' }),
 };

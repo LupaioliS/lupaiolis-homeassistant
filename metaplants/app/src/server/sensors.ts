@@ -2,7 +2,7 @@ import { store } from './store';
 import { getEntityState, isHaAvailable } from './homeassistant';
 import { broadcast } from './events';
 import { config } from './config';
-import { recordSample, getSamples, seedLegacySamples } from './history';
+import { recordSample, getSamples, getLastSample, seedLegacySamples } from './history';
 import { predictWatering, previewDryPoint } from './predict';
 import { findRises, isValidSoilReading } from '../shared/soil';
 import { Plant, PlantReadings, PlantSensors } from '../shared/types';
@@ -13,6 +13,9 @@ const SOIL_JUMP_LOOKBACK_MS = 4 * 60 * 60 * 1000;
 // Dopo un salto rilevato (o un'irrigazione registrata) il terreno resta bagnato:
 // in questo periodo non si chiede di nuovo conferma.
 const SOIL_JUMP_COOLDOWN_MS = 12 * 60 * 60 * 1000;
+// Una domanda rimasta senza risposta per così tanto non la vedrà più nessuno al
+// momento giusto, e finché è aperta blocca il rilevamento delle successive.
+const SOIL_JUMP_PENDING_MAX_MS = 3 * 24 * 60 * 60 * 1000;
 
 const readings = new Map<string, PlantReadings>(); // plantId -> ultimi valori
 let timer: NodeJS.Timeout | null = null;
@@ -65,32 +68,79 @@ function inJumpCooldown(plant: Plant, now: number): boolean {
  * giro di un quarto d'ora) facevano partire la domanda senza che nessuno avesse
  * dato acqua.
  */
-function detectJump(plant: Plant, now: number): boolean {
-	if (plant.sensors?.soilJumpPendingAck) return false; // già in attesa di risposta
-	if (inJumpCooldown(plant, now)) return false;
+function detectJump(plant: Plant, now: number): number | null {
+	if (plant.sensors?.soilJumpPendingAck) return null; // già in attesa di risposta
+	if (inJumpCooldown(plant, now)) return null;
 
 	const recent = getSamples(plant.id, 'soil', now - SOIL_JUMP_LOOKBACK_MS);
-	return findRises(recent, plant.sensors?.soilJumpDelta).length > 0;
+	const rises = findRises(recent, plant.sensors?.soilJumpDelta);
+	return rises.length > 0 ? recent[rises[rises.length - 1]].t : null;
 }
 
-function computePrediction(plant: Plant, currentSoil: number | null) {
+function pendingExpired(sensors: PlantSensors, now: number): boolean {
+	if (!sensors.soilJumpPendingAck) return false;
+	const at = new Date(sensors.lastSoilJumpAt ?? '').getTime();
+	return !Number.isFinite(at) || now - at > SOIL_JUMP_PENDING_MAX_MS;
+}
+
+// La stima legge tutto lo storico del terreno (~60 giorni): rifarla ogni 20s per
+// ogni pianta, sul Pi, quando i campioni cambiano un bucket ogni 15 minuti, era
+// lavoro buttato. Si rifà quando cambia la lettura, l'ultimo campione o la pianta,
+// e comunque ogni PREDICTION_MAX_AGE_MS perché "fra N giorni" scorre col tempo.
+const PREDICTION_MAX_AGE_MS = 5 * 60 * 1000;
+interface PredictionMemo {
+	key: string;
+	at: number;
+	prediction: PlantReadings['prediction'];
+	nextDryPoint: number | null;
+}
+const predictionMemo = new Map<string, PredictionMemo>();
+
+function memoKey(plant: Plant, currentSoil: number | null): string {
+	const last = getLastSample(plant.id, 'soil');
+	const s = plant.sensors;
+	return [currentSoil, last?.t, last?.v, last?.peak, last?.trough, plant.lastWatered, s?.soilHumidityThreshold, s?.soilJumpDelta].join('|');
+}
+
+function computePrediction(plant: Plant, currentSoil: number | null, now: number, force = false): PredictionMemo {
+	const key = memoKey(plant, currentSoil);
+	const cached = predictionMemo.get(plant.id);
+	if (!force && cached && cached.key === key && now - cached.at < PREDICTION_MAX_AGE_MS) return cached;
+
+	let prediction: PlantReadings['prediction'] = null;
 	try {
-		return predictWatering(plant, store.getActions(plant.id), currentSoil);
+		prediction = predictWatering(plant, store.getActions(plant.id), currentSoil, now);
 	} catch (err) {
 		console.error(`[Predict] Failed for ${plant.name}:`, (err as Error).message);
-		return null;
 	}
+	// Cosa imparerebbe la scala se registrassi un'irrigazione adesso: esiste anche
+	// quando la previsione non c'è ancora, che è quando serve di più saperlo.
+	const nextDryPoint = plant.sensors?.soilHumidity ? previewDryPoint(plant, now, prediction?.calibration) : null;
+	const memo = { key, at: now, prediction, nextDryPoint };
+	predictionMemo.set(plant.id, memo);
+	return memo;
 }
 
-async function readPlant(plant: Plant): Promise<void> {
-	const s = plant.sensors;
-	if (!hasSensors(plant)) return;
+async function readPlant(snapshot: Plant): Promise<void> {
+	const asked = snapshot.sensors;
+	if (!hasSensors(snapshot)) return;
 
 	const [temp, ambientHum, soilHum] = await Promise.all([
-		s?.temperature ? getEntityState(s.temperature) : Promise.resolve(null),
-		s?.ambientHumidity ? getEntityState(s.ambientHumidity) : Promise.resolve(null),
-		s?.soilHumidity ? getEntityState(s.soilHumidity) : Promise.resolve(null),
+		asked?.temperature ? getEntityState(asked.temperature) : Promise.resolve(null),
+		asked?.ambientHumidity ? getEntityState(asked.ambientHumidity) : Promise.resolve(null),
+		asked?.soilHumidity ? getEntityState(asked.soilHumidity) : Promise.resolve(null),
 	]);
+
+	// Le chiamate a HA possono durare: nel frattempo la pianta può essere stata
+	// cancellata, modificata dal form, o la domanda "hai innaffiato?" può aver
+	// avuto risposta. Si lavora sulla copia attuale, non su quella di prima: scrivere
+	// `{...sensori vecchi}` rimetteva in piedi una domanda appena chiusa o annullava
+	// il cambio di sensore appena salvato. E le letture di un'entità che nel
+	// frattempo è stata cambiata non appartengono più a questa pianta.
+	const plant = store.getPlant(snapshot.id);
+	if (!plant) return;
+	const s = plant.sensors;
+	if (s?.temperature !== asked?.temperature || s?.ambientHumidity !== asked?.ambientHumidity || s?.soilHumidity !== asked?.soilHumidity) return;
 
 	const now = Date.now();
 	// Una lettura impossibile (448%, 0 da sensore staccato) vale come sensore non
@@ -104,15 +154,14 @@ async function readPlant(plant: Plant): Promise<void> {
 	if (ambientHum?.value != null) recordSample(plant.id, 'hum', ambientHum.value, now);
 	if (soilValue != null) recordSample(plant.id, 'soil', soilValue, now);
 
+	const { prediction, nextDryPoint } = computePrediction(plant, soilValue, now);
 	const next: PlantReadings = {
 		temperature: temp?.value ?? null,
 		ambientHumidity: ambientHum?.value ?? null,
 		soilHumidity: soilValue,
 		updatedAt: new Date(now).toISOString(),
-		prediction: computePrediction(plant, soilValue),
-		// Cosa imparerebbe la scala se registrassi un'irrigazione adesso: esiste anche
-		// quando la previsione non c'è ancora, che è quando serve di più saperlo.
-		nextDryPoint: s?.soilHumidity ? previewDryPoint(plant, now) : null,
+		prediction,
+		nextDryPoint,
 	};
 
 	readings.set(plant.id, next);
@@ -123,28 +172,46 @@ async function readPlant(plant: Plant): Promise<void> {
 
 	// plants.json viene riscritto solo quando cambia qualcosa di persistente:
 	// lo storico ora vive in history.db (history.ts), quindi il poll normale non tocca il disco.
-	const jumped = detectJump(plant, now);
+	const expired = pendingExpired(s, now);
+	const riseAt = expired ? null : detectJump(plant, now);
+	const jumped = riseAt != null;
 	const baselineChanged = s.lastSoilHumidity == null || Math.abs(s.lastSoilHumidity - soilValue) >= 1;
-	if (!jumped && !baselineChanged) return;
+	if (!jumped && !baselineChanged && !expired) return;
 
 	const updatedSensors: PlantSensors = { ...s, lastSoilHumidity: soilValue };
+	if (expired) {
+		updatedSensors.soilJumpPendingAck = false;
+		console.log(`[Sensors] Unanswered soil jump for '${plant.name}' expired`);
+	}
 	if (jumped) {
 		updatedSensors.soilJumpPendingAck = true;
 		updatedSensors.lastSoilJumpAt = new Date(now).toISOString();
+		updatedSensors.soilJumpRiseAt = new Date(riseAt).toISOString();
 	}
 
 	const updated = store.updatePlant(plant.id, { sensors: updatedSensors });
-	if (updated && jumped) {
-		console.log(`[Sensors] Soil jump detected for '${plant.name}' (${soilValue}%)`);
-		broadcast({ type: 'soil-humidity-jumped', plantId: plant.id });
+	if (updated && (jumped || expired)) {
+		if (jumped) console.log(`[Sensors] Soil jump detected for '${plant.name}' (${soilValue}%)`);
+		// La domanda viaggia dentro la pianta (soilJumpPendingAck): il client la
+		// ricava dallo stato, quindi basta questo evento.
 		broadcast({ type: 'plant-updated', plant: updated });
 	}
 }
 
+let polling = false;
+
 async function pollOnce(): Promise<void> {
-	// In parallelo: in sequenza il ritardo dell'ultima pianta era la somma di
-	// tutte le chiamate HTTP a Home Assistant fatte prima di lei.
-	await Promise.all(store.getPlants().filter(hasSensors).map((plant) => readPlant(plant)));
+	// Se HA è lento il giro precedente può non essere finito: partirne un altro
+	// accumula richieste sul Pi senza dare letture più fresche.
+	if (polling) return;
+	polling = true;
+	try {
+		// In parallelo: in sequenza il ritardo dell'ultima pianta era la somma di
+		// tutte le chiamate HTTP a Home Assistant fatte prima di lei.
+		await Promise.all(store.getPlants().filter(hasSensors).map((plant) => readPlant(plant)));
+	} finally {
+		polling = false;
+	}
 }
 
 export async function refreshPlantReadings(plant: Plant): Promise<void> {
@@ -160,11 +227,10 @@ export async function refreshPlantReadings(plant: Plant): Promise<void> {
 export function refreshPrediction(plant: Plant): void {
 	const current = readings.get(plant.id);
 	if (!current) return;
-	const next: PlantReadings = {
-		...current,
-		prediction: computePrediction(plant, current.soilHumidity),
-		nextDryPoint: plant.sensors?.soilHumidity ? previewDryPoint(plant) : null,
-	};
+	// Forzata: un'azione modificata o cancellata dalla tabella storico non cambia
+	// la chiave della cache, ma cambia la stima.
+	const { prediction, nextDryPoint } = computePrediction(plant, current.soilHumidity, Date.now(), true);
+	const next: PlantReadings = { ...current, prediction, nextDryPoint };
 	readings.set(plant.id, next);
 	broadcast({ type: 'plant-readings', plantId: plant.id, readings: next });
 }

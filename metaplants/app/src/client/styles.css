@@ -1433,3 +1433,149 @@ header h1 {
   margin-top: 12px;
   line-height: 1.4;
 }
+
+/* ── Assistente ─────────────────────────────────────────────────────────── */
+.assistant-panel {
+  background: white;
+  border: 1px solid var(--green-200);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+}
+
+.assistant-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.assistant-title {
+  background: none;
+  border: none;
+  font: inherit;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--green-800);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.assistant-count {
+  background: var(--green-600);
+  color: white;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  padding: 1px 8px;
+}
+
+.assistant-run {
+  font-size: 0.85rem;
+  padding: 6px 12px;
+}
+
+.assistant-empty,
+.assistant-error {
+  margin-top: 8px;
+  font-size: 0.9rem;
+  color: #6b7280;
+}
+
+.assistant-error {
+  color: #b91c1c;
+}
+
+.assistant-cards {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.assistant-card {
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--green-50);
+  border-left: 4px solid var(--green-400);
+}
+
+.assistant-card-question {
+  background: #eff6ff;
+  border-left-color: #60a5fa;
+}
+
+.assistant-card-action {
+  background: #fffbeb;
+  border-left-color: #f59e0b;
+}
+
+.assistant-card.is-auto {
+  background: #f8fafc;
+  border-left-color: #94a3b8;
+}
+
+.assistant-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.assistant-card-plant {
+  background: white;
+  border: 1px solid var(--green-200);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  padding: 1px 8px;
+  color: var(--green-700);
+  cursor: pointer;
+}
+
+.assistant-card-body {
+  margin-top: 4px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+p.assistant-card-action {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #92400e;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.assistant-card.is-auto p.assistant-card-action {
+  color: #475569;
+}
+
+.assistant-card-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+  align-items: center;
+}
+
+.assistant-card-buttons .btn {
+  font-size: 0.85rem;
+  padding: 6px 12px;
+}
+
+.assistant-dismiss {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 4px 8px;
+}

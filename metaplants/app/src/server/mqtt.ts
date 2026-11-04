@@ -6,7 +6,7 @@ import { store } from './store';
 import { broadcast } from './events';
 import { mt } from './i18n';
 import { config } from './config';
-import { getReadings } from './sensors';
+import { getReadings, refreshPrediction } from './sensors';
 
 const MQTT_URL = config.mqttUrl;
 const MQTT_USER = config.mqttUser;
@@ -122,6 +122,10 @@ function handleCommand(topic: string, message: Buffer) {
 		if (updated) {
 			publishState(updated);
 			broadcast({ type: 'plant-updated', plant: updated });
+			// Come dalla REST (routes/plants.ts): storico e suggerimenti nel client, e
+			// stima rifatta subito invece che al prossimo poll.
+			broadcast({ type: 'actions-changed', plantId: plant.id });
+			if (action === 'water') refreshPrediction(updated);
 		}
 		console.log(`[MQTT] Action '${action}' executed for plant '${plant.name}'`);
 	}
@@ -130,6 +134,9 @@ function handleCommand(topic: string, message: Buffer) {
 export function disconnectMqtt(): Promise<void> {
 	return new Promise((resolve) => {
 		if (!client) return resolve();
+		// Con il broker irraggiungibile la publish non chiama mai il callback e lo
+		// spegnimento restava appeso fino al SIGKILL.
+		setTimeout(resolve, 3000).unref();
 		client.publish(TOPIC_PREFIX + '/status', 'offline', { retain: true }, () => {
 			client!.end(false, () => resolve());
 		});
@@ -407,9 +414,13 @@ function publishState(plant: Plant) {
 	const soil = assessSoil(plant.sensors, currentReadings?.soilHumidity, prediction);
 	// Una prova del dito "ancora umido" rimanda la scadenza: stesso calcolo della scheda.
 	const waterDue = describeWaterDue(plant, wateringIntervalDays);
+	// Con un sensore che legge, il terreno non secco vince anche sul calendario
+	// scaduto: stessa regola di assessWater (client/waterStatus.ts).
 	const waterState = soil.needsWater
 		? mt(soil.source === 'ai' ? 'status.aiSoilWater' : 'status.soilSensorWater')
-		: formatDue(waterDue, 'watering.never');
+		: soil.source !== 'none'
+			? mt('status.soilStillMoist')
+			: formatDue(waterDue, 'watering.never');
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/watering`, waterState);
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/soil_needs_water`, soil.needsWater ? 'ON' : 'OFF');
 	// La % sulla scala della pianta, come entità a sé: è quella su cui ha senso
@@ -434,7 +445,12 @@ function publishState(plant: Plant) {
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/pruning`, pruneState);
 
 	// Next watering/fertilizing dates, last repotted/pruned dates — for automations (ISO 8601, device_class timestamp)
-	const nextWatering = waterDue.dueAt != null ? new Date(waterDue.dueAt).toISOString() : '';
+	// Col sensore il calendario non decide: la data utile è quella della stima, se c'è.
+	// Una data di calendario già passata farebbe scattare automazioni a terreno umido.
+	const nextWateringAt = soil.source !== 'none' && !soil.needsWater
+		? (prediction ? new Date(prediction.nextWateringAt).getTime() : null)
+		: waterDue.dueAt;
+	const nextWatering = nextWateringAt != null ? new Date(nextWateringAt).toISOString() : '';
 	publishIfChanged(`${TOPIC_PREFIX}/plant/${slug}/watering_next`, nextWatering);
 
 	const nextFertilizing = plant.lastFertilized

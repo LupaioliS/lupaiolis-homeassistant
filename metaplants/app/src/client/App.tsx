@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import type { Plant, PlantAction, PlantReadings, WaterAmount, WaterSource } from '../shared/types';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import type { AssistantState, Plant, PlantAction, PlantReadings, WaterAmount, WaterSource } from '../shared/types';
 import { api } from './api';
-import { PlantCard, isDoneToday } from './components/PlantCard';
+import { PlantCard } from './components/PlantCard';
 import { PlantForm } from './components/PlantForm';
 import { ActionDialog, type ActionDialogResult } from './components/ActionDialog';
 import { ActionHistory } from './components/ActionHistory';
 import { AttentionSettings } from './components/AttentionSettings';
+import { AssistantPanel } from './components/AssistantPanel';
 import { PlantNavigator, type PlantNeeds } from './components/PlantNavigator';
 import { t, initLocale } from './i18n';
 import { getCurrentSeason, seasonEmoji } from './season';
@@ -25,6 +26,7 @@ const SSE_STALE_MS = 50_000;
 const SSE_WATCHDOG_MS = 10_000;
 
 const cardAnchorId = (plantId: string) => `plant-${plantId}`;
+const jumpKey = (plant: Plant) => `${plant.id}@${plant.sensors?.lastSoilJumpAt ?? ''}`;
 
 export function App() {
 	const [plants, setPlants] = useState<Plant[]>([]);
@@ -35,7 +37,11 @@ export function App() {
 	const [actionsByPlant, setActionsByPlant] = useState<Record<string, PlantAction[]>>({});
 	const [searchTerm, setSearchTerm] = useState('');
 	const [sortBy, setSortBy] = useState<SortOption>('name');
-	const [soilWaterQueue, setSoilWaterQueue] = useState<Plant[]>([]);
+	// Domande "hai innaffiato?" già chiuse da questo dispositivo, in attesa che il
+	// server lo confermi con un plant-updated. La chiave include l'orario del salto:
+	// un salto nuovo sulla stessa pianta è un'altra domanda.
+	const [assistant, setAssistant] = useState<AssistantState | null>(null);
+	const [answeredJumps, setAnsweredJumps] = useState<Set<string>>(() => new Set());
 	const [showHistory, setShowHistory] = useState(false);
 	const [showSettings, setShowSettings] = useState(false);
 	const [attentionPrefs, setAttentionPrefs] = useState<AttentionPrefs>(loadAttentionPrefs);
@@ -44,9 +50,6 @@ export function App() {
 	// tolto un filtro di ricerca che la nascondeva).
 	const [pendingScrollId, setPendingScrollId] = useState<string | null>(null);
 	const searchInputRef = useRef<HTMLInputElement>(null);
-	// Ref keeps SSE handler (captured with [] deps) in sync with current plants state
-	const plantsRef = useRef<Plant[]>([]);
-	useEffect(() => { plantsRef.current = plants; }, [plants]);
 
 	useEffect(() => {
 		initLocale().then(() => setReady(true));
@@ -54,13 +57,15 @@ export function App() {
 
 
 	const loadPlants = useCallback(async () => {
-		const [data, initialReadings, allActions] = await Promise.all([
+		const [data, initialReadings, allActions, assistantState] = await Promise.all([
 			api.getPlants(),
 			api.getReadings().catch(() => ({} as Record<string, PlantReadings>)),
 			api.getAllActions().catch(() => [] as PlantAction[]),
+			api.getAssistant().catch(() => null),
 		]);
 		setPlants(data);
 		setReadings(initialReadings);
+		if (assistantState) setAssistant(assistantState);
 
 		// Una richiesta sola invece di una per scheda: le azioni servono a ogni
 		// PlantCard per i suggerimenti stagionali e per le ultime quantità usate.
@@ -70,14 +75,18 @@ export function App() {
 		}
 		setActionsByPlant(grouped);
 
-		// Prompt for plants whose soil sensor jumped while the app was closed (server-persisted flag).
-		// Plants already watered today don't need the prompt — auto-acknowledge those instead of asking again.
-		const jumped = data.filter((p) => p.sensors?.soilJumpPendingAck === true);
-		const alreadyWatered = jumped.filter((p) => isDoneToday(p.lastWatered));
-		alreadyWatered.forEach((p) => api.acknowledgeSoilJump(p.id).catch(() => {/* best-effort */}));
-		const toPrompt = jumped.filter((p) => !isDoneToday(p.lastWatered));
-		if (toPrompt.length > 0) setSoilWaterQueue(toPrompt);
 	}, []);
+
+	// Le domande vengono dallo stato delle piante, non da una coda a parte: quando
+	// il server chiude una domanda (risposta da un altro dispositivo, irrigazione dal
+	// pulsante HA) il plant-updated la toglie anche qui. Prima la coda teneva copie
+	// vecchie, e confermare dopo il pulsante HA registrava l'acqua due volte. Il
+	// server decide anche quando un'irrigazione registrata spiega già la risalita
+	// (store.ts): il client non scarta più niente da solo.
+	const soilWaterQueue = useMemo(
+		() => plants.filter((p) => p.sensors?.soilJumpPendingAck === true && !answeredJumps.has(jumpKey(p))),
+		[plants, answeredJumps],
+	);
 
 	useEffect(() => {
 		loadPlants();
@@ -103,16 +112,8 @@ export function App() {
 					});
 				} else if (data.type === 'plant-deleted') {
 					setPlants((prev) => prev.filter((p) => p.id !== data.plantId));
-				} else if (data.type === 'soil-humidity-jumped') {
-					// Real-time jump detection: app is open when soil sensor jumps
-					const plant = plantsRef.current.find((p) => p.id === data.plantId);
-					if (plant && isDoneToday(plant.lastWatered)) {
-						api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
-					} else if (plant) {
-						setSoilWaterQueue((prev) =>
-							prev.some((p) => p.id === plant.id) ? prev : [...prev, plant]
-						);
-					}
+				} else if (data.type === 'assistant-updated') {
+					setAssistant(data.state);
 				} else if (data.type === 'plant-readings') {
 					setReadings((prev) => ({ ...prev, [data.plantId]: data.readings }));
 				} else if (data.type === 'actions-changed') {
@@ -173,25 +174,56 @@ export function App() {
 		setPlants((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
 	}, []);
 
-	const handleWater = async (id: string, amount: WaterAmount | undefined, source?: WaterSource) => {
-		const now = new Date().toISOString();
-		setPlants((prev) => prev.map((p) => (p.id === id ? { ...p, lastWatered: now } : p)));
-		api.logAction(id, 'water', { amount, source }).catch(loadPlants);
+	const handleWater = async (id: string, amount: WaterAmount | undefined, source?: WaterSource, date?: string) => {
+		const at = date ?? new Date().toISOString();
+		setPlants((prev) => prev.map((p) => (p.id === id && !(p.lastWatered && p.lastWatered > at) ? { ...p, lastWatered: at } : p)));
+		await api.logAction(id, 'water', { amount, source, date }).catch(loadPlants);
+	};
+
+	const markJumpAnswered = (plant: Plant) => {
+		setAnsweredJumps((prev) => new Set(prev).add(jumpKey(plant)));
 	};
 
 	const handleSoilQueueConfirm = async ({ amount, source }: ActionDialogResult) => {
 		const plant = soilWaterQueue[0];
 		if (!plant) return;
-		await handleWater(plant.id, amount, source);
+		markJumpAnswered(plant);
+		// All'ora in cui il terreno è risalito, non a quella della risposta: chi
+		// risponde la sera (o due giorni dopo) non sposta il calendario e la
+		// calibrazione ritrova la risalita nella sua finestra.
+		await handleWater(plant.id, amount, source, plant.sensors?.soilJumpRiseAt);
 		api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
-		setSoilWaterQueue((prev) => prev.slice(1));
 	};
 
 	const handleSoilQueueSkip = () => {
 		const plant = soilWaterQueue[0];
-		if (plant) api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
-		setSoilWaterQueue((prev) => prev.slice(1));
+		if (!plant) return;
+		markJumpAnswered(plant);
+		api.acknowledgeSoilJump(plant.id).catch(() => {/* best-effort */});
 	};
+
+	const soilPrompt = soilWaterQueue.length > 0 && (
+		<ActionDialog
+			// Una pianta diversa è un dialog nuovo: senza key quantità e provenienza
+			// scelte per la precedente restavano impostate.
+			key={jumpKey(soilWaterQueue[0])}
+			type="water"
+			plant={soilWaterQueue[0]}
+			titleOverride={t('actions.soilJumpTitle')}
+			subtitle={t('actions.soilJumpPrompt').replace('{name}', soilWaterQueue[0].nickname || soilWaterQueue[0].name)}
+			defaultAmount={adviseAmount(
+				actionsByPlant[soilWaterQueue[0].id],
+				readings[soilWaterQueue[0].id]?.prediction,
+				soilWaterQueue[0].lastWatered,
+			).suggested}
+			// Un tocco fuori dal riquadro sul telefono non è un "no": chiuderebbe la
+			// domanda e farebbe partire 12 ore senza chiedere più.
+			closeOnOverlay={false}
+			cancelLabel={t('actions.soilJumpNo')}
+			onConfirm={handleSoilQueueConfirm}
+			onClose={handleSoilQueueSkip}
+		/>
+	);
 
 	const handleFertilize = async (id: string, amountGrams: number) => {
 		const now = new Date().toISOString();
@@ -351,6 +383,7 @@ export function App() {
 					<p style={{ color: '#16a34a', marginTop: 4 }}>{t('history.title')}</p>
 				</header>
 				<ActionHistory plants={plants} onBack={() => setShowHistory(false)} onChanged={loadPlants} />
+				{soilPrompt}
 			</div>
 		);
 	}
@@ -383,6 +416,10 @@ export function App() {
 				<span className="season-banner-emoji">{seasonEmoji[currentSeason]}</span>
 				<span>{t('app.currentSeason')}: <strong>{t(`seasons.${currentSeason}`)}</strong></span>
 			</div>
+
+			{assistant && (
+				<AssistantPanel state={assistant} plants={plants} onChange={setAssistant} onSelectPlant={goToPlant} />
+			)}
 
 			{attentionPlants.length > 0 && (
 				<div className="attention-banner">
@@ -477,21 +514,7 @@ export function App() {
 				</div>
 			)}
 
-			{soilWaterQueue.length > 0 && (
-				<ActionDialog
-					type="water"
-					plant={soilWaterQueue[0]}
-					titleOverride={t('actions.soilJumpTitle')}
-					subtitle={t('actions.soilJumpPrompt').replace('{name}', soilWaterQueue[0].nickname || soilWaterQueue[0].name)}
-					defaultAmount={adviseAmount(
-						actionsByPlant[soilWaterQueue[0].id],
-						readings[soilWaterQueue[0].id]?.prediction,
-						soilWaterQueue[0].lastWatered,
-					).suggested}
-					onConfirm={handleSoilQueueConfirm}
-					onClose={handleSoilQueueSkip}
-				/>
-			)}
+			{soilPrompt}
 
 			{showSettings && (
 				<AttentionSettings

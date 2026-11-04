@@ -1,5 +1,40 @@
 # Changelog
 
+## 1.15.0
+
+**Assistant (Gemini).** With a Google AI Studio key in the new `gemini_api_key` option, one check a day (`assistant_hour`, default 8) turns your plants' data into cards at the top of the page: advice, questions with tap-to-answer options, and proposed actions.
+
+- The actions come from a fixed catalog: seasonal watering/fertilizing intervals, manual soil threshold, log/resolve a health issue, add a note. Small reversible changes (a note, an interval moved by up to 30%) are applied automatically, with **Undo**; the rest waits for **Apply**. The add-on decides, not the model
+- Your answers to questions go into the next day's check, so it doesn't ask twice and gets to know the plants
+- Cheap by design: one request a day, data only, compact JSON in and out, `gemini-2.5-flash-lite` by default (`gemini_model`). ~3,500 input tokens with 14 plants. "Ask now" at most every 10 minutes
+
+**A soil sensor that says "not yet" now wins over the calendar.** Plants with a working sensor were told to water by an overdue schedule (or an estimate that reached zero) with the soil still at 16% of their scale. Now, while the sensor reads and the soil isn't dry, the card says *soil still moist*, nothing appears in "needs attention", the MQTT `watering` state agrees and `watering_next` follows the estimate. The calendar takes over again only if the sensor stops reporting.
+
+**The "did you water it?" prompt shows up when it should.** Checked end to end, it was being dropped in several ways:
+
+- The app silently discarded any prompt for a plant "watered today" (in UTC: wrong between midnight and 2am) — rain the evening after a morning watering never asked. The server now decides, by time: a watering logged up to 12 hours before the rise answers it, from anywhere
+- A watering from the Home Assistant button left the question pending for days, which blocked detecting the next ones. It now closes it; unanswered questions expire after 3 days
+- "Yes" logs the water **at the time of the rise**, not when you answer: a late answer no longer moves the schedule or misses the calibration window
+- A tap outside the dialog counted as "no" (and muted detection for 12 hours). Only the buttons close it now, and "no" says so
+- Pressing the HA button while the dialog was open, or answering on another device, logged the water twice. The dialog now follows the plant's state and closes everywhere
+- Saving the plant form while a question arrived erased it; a sensor poll overlapping an answer could bring it back. Fields owned by the server are no longer overwritten by the form or by a slow poll
+- The dialog is also shown over the History page, and no longer carries amount/source over from the previous plant
+
+**Watering model**, checked against two weeks of real data from six sensors:
+
+- **100% is where the soil settles, not the peak.** Probes spike for minutes after water and then drop (Strelitzia 90 → 55 in an hour); with the peak as 100% a plant watered that morning read 35%. Now it's the median between 1 and 4 hours after the rise. The calibration panel shows both
+- **Top-ups don't move the 0% point.** A watering given while the plant was above 40% of its scale still counts for "full" but not for "dry": one early watering had moved a rosemary's dry point from 34 to 43, i.e. asking for water while damp. Marked in the calibration panel
+- **Drying speed restarts at every rise**, logged or not. An unlogged watering or rain mid-cycle halved the rate (Strelitzia 0.83/day instead of ~2.1, full cycle 66 days instead of 9 — now 9.2)
+- Calibration entries archived by earlier versions keep their dry point; their peak isn't used as 100%. Expect the calibrated percentages to read higher after updating: same soil, more honest scale
+
+Smaller fixes:
+
+- Home Assistant requests time out after 10 s and polls don't overlap, so a slow Supervisor no longer piles up requests
+- The estimate is recomputed only when the soil data change (or every 5 minutes) instead of on every 20 s poll for every plant
+- Waterings from the HA button now refresh the estimate and the history table at once, like the ones from the app
+- A plant deleted during a sensor poll no longer leaves orphan history
+- Shutdown no longer hangs when the MQTT broker is unreachable
+
 ## 1.14.0
 
 **Finger test** for plants without a soil sensor. A calendar only guesses: when such a plant comes due, the card now says **👆 Touch the soil** instead of "water", with three answers.

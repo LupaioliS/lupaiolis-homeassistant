@@ -5,6 +5,8 @@ import fastifyCors from '@fastify/cors';
 import fastifyMultipart from '@fastify/multipart';
 import path from 'path';
 import { plantRoutes } from './routes/plants';
+import { assistantRoutes } from './routes/assistant';
+import { startAssistant, stopAssistant } from './assistant';
 import { connectMqtt, disconnectMqtt, publishAllPlants, publishPlant } from './mqtt';
 import { store, UPLOADS_DIR, ensureUploadsDir } from './store';
 import { addClient } from './events';
@@ -26,6 +28,7 @@ async function start() {
 
 	// API routes
 	await fastify.register(plantRoutes, { prefix: '/api' });
+	await fastify.register(assistantRoutes, { prefix: '/api' });
 
 	// SSE endpoint for real-time updates
 	fastify.get('/api/events', (request, reply) => {
@@ -86,6 +89,7 @@ async function start() {
 
 	// HA sensor polling is independent of MQTT — must start even if MQTT is unreachable.
 	startSensorPolling();
+	startAssistant();
 
 	const port = Number(process.env.PORT) || 3000;
 	await fastify.listen({ port, host: '0.0.0.0' });
@@ -94,6 +98,7 @@ async function start() {
 
 async function shutdown() {
 	stopScheduler();
+	stopAssistant();
 	stopSensorPolling();
 	stopHistoryPersistence(); // scrive su disco le letture non ancora salvate
 	await disconnectMqtt();

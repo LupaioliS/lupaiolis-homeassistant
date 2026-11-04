@@ -22,6 +22,22 @@ const SOIL_FEELS: SoilFeel[] = ['moist', 'wet'];
  * Ciò che va rifatto quando lo storico azioni cambia, da qualunque strada arrivi:
  * pulsante sulla scheda, MQTT o riga corretta a mano dalla tabella.
  */
+// Campi dei sensori che scrive solo il server. Il form li rimandava indietro dalla
+// copia che aveva aperto: salvare la pianta mentre arrivava una domanda "hai
+// innaffiato?" la cancellava, salvarla dopo una risposta data altrove la riapriva.
+const SERVER_OWNED_SENSOR_FIELDS = ['lastSoilHumidity', 'soilJumpPendingAck', 'lastSoilJumpAt', 'soilJumpRiseAt'] as const;
+
+function mergeServerOwnedSensors(incoming: PlantSensors, current: PlantSensors | undefined): PlantSensors {
+	const merged: PlantSensors = { ...incoming };
+	for (const key of SERVER_OWNED_SENSOR_FIELDS) delete merged[key];
+	// Con un altro sensore del terreno (o nessuno) lo stato del vecchio non vale più.
+	if (!current || !incoming.soilHumidity || incoming.soilHumidity !== current.soilHumidity) return merged;
+	for (const key of SERVER_OWNED_SENSOR_FIELDS) {
+		if (current[key] !== undefined) (merged as Record<string, unknown>)[key] = current[key];
+	}
+	return merged;
+}
+
 function publishActionChange(plantId: string, type: PlantAction['type']) {
 	const plant = store.getPlant(plantId);
 	if (!plant) return;
@@ -165,6 +181,10 @@ export const plantRoutes: FastifyPluginAsync = async (fastify) => {
 		}
 		if (body.fertilizingSchedule) {
 			body.fertilizingIntervalDays = getIntervalForSeason(body.fertilizingSchedule, season, body.fertilizingIntervalDays ?? 14);
+		}
+
+		if (body.sensors) {
+			body.sensors = mergeServerOwnedSensors(body.sensors, store.getPlant(request.params.id)?.sensors);
 		}
 
 		const plant = store.updatePlant(request.params.id, body);

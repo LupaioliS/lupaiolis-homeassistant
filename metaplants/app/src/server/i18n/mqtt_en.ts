@@ -10,6 +10,7 @@ export const mqtt_en = {
 		tomorrow: 'tomorrow',
 		soilSensorWater: 'needs watering (soil sensor)',
 		aiSoilWater: 'needs watering (0% on the plant scale)',
+		soilStillMoist: 'soil still moist',
 	},
 	watering: {
 		never: 'never watered',

@@ -50,6 +50,9 @@ export async function getEntityState(entityId: string): Promise<EntityState | nu
 	try {
 		const res = await fetch(`${HA_BASE_URL}/states/${encodeURIComponent(entityId)}`, {
 			headers: authHeaders(),
+			// Un Supervisor che non risponde non deve tenere aperto il poll per minuti:
+			// intanto ne partirebbero altri, e la lettura arriverebbe su dati vecchi.
+			signal: AbortSignal.timeout(10_000),
 		});
 
 		if (res.status === 404) {

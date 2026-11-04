@@ -161,7 +161,8 @@ function buildCalibrationInfo(prediction: WateringPrediction): string[] {
 					.replace('{date}', formatShortDateTime(new Date(o.at).getTime()))
 					.replace('{source}', WATER_SOURCE_EMOJI[o.source ?? 'manual'])
 					.replace('{dry}', o.dry == null ? '—' : String(o.dry))
-					.replace('{wet}', o.wet == null ? '—' : String(o.wet)),
+					.replace('{wet}', o.wet == null ? '—' : String(o.wet))
+					+ (o.early ? ` ${t('prediction.calibrationEarly')}` : ''),
 			);
 		}
 	}
@@ -222,10 +223,12 @@ function InfoPill({ id, className, style, lines, openId, onToggle, innerRef, chi
 	);
 }
 
+/** Fatto oggi, nel giorno LOCALE: confrontare le date ISO (UTC) sbagliava fra mezzanotte e le 2. */
 export function isDoneToday(dateStr?: string): boolean {
 	if (!dateStr) return false;
-	const today = new Date().toISOString().split('T')[0];
-	return dateStr.split('T')[0] === today;
+	const done = new Date(dateStr);
+	if (Number.isNaN(done.getTime())) return false;
+	return done.toDateString() === new Date().toDateString();
 }
 
 const defaultSchedule: SeasonalSchedule = { spring: 3, summer: 2, autumn: 5, winter: 7 };
@@ -326,6 +329,10 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 			label: water.soil.source === 'ai' ? t('status.aiSoilWater') : t('status.soilSensorWater'),
 			dueAt: scheduleStatus.dueAt,
 		}
+		// Il sensore dice "non ancora": il calendario scaduto non conta, e una stima
+		// arrivata a zero mentre il terreno è ancora umido si è solo sbagliata.
+		: water.source === 'soil' || (water.source === 'prediction' && prediction && isPredictionDueNow(prediction))
+			? { overdue: false, label: t('status.soilStillMoist'), dueAt: scheduleStatus.dueAt }
 		: water.source === 'prediction' && prediction
 			? { overdue: water.overdue, label: `🧠 ${formatPredictionEta(prediction)}`, dueAt: scheduleStatus.dueAt }
 			: fingerTest

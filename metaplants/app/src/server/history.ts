@@ -81,7 +81,10 @@ export interface ArchivedObservation {
 	 * anche quando le letture attorno a lei non ci sono più.
 	 */
 	dry: number | null;
+	/** Picco dopo la risalita. */
 	wet: number;
+	/** Livello assestato (1.15.0). Assente nelle righe archiviate prima. */
+	settled?: number | null;
 }
 
 const history = new Map<string, PlantSeries>();
@@ -143,7 +146,10 @@ function sanitizeSample(key: SeriesKey, sample: Sample): Sample | null {
 /** Stessa regola per l'archivio, che arriva da quei campioni. */
 function sanitizeObservation(o: ArchivedObservation): ArchivedObservation | null {
 	if (!isValidSoilReading(o.wet)) return null;
-	return o.dry != null && !isValidSoilReading(o.dry) ? { ...o, dry: null } : o;
+	const clean = { ...o };
+	if (clean.dry != null && !isValidSoilReading(clean.dry)) clean.dry = null;
+	if (clean.settled != null && !isValidSoilReading(clean.settled)) clean.settled = null;
+	return clean;
 }
 
 function markPending(plantId: string, key: SeriesKey, sample: Sample): void {
@@ -188,9 +194,13 @@ function openDatabase(): DatabaseSync {
 			at INTEGER NOT NULL,
 			dry REAL,
 			wet REAL NOT NULL,
+			settled REAL,
 			PRIMARY KEY (plant_id, action_id)
 		) WITHOUT ROWID;
 	`);
+	// Database creati prima della 1.15.0: il livello assestato non c'era.
+	const columns = database.prepare('PRAGMA table_info(calibration)').all() as { name: string }[];
+	if (!columns.some((c) => c.name === 'settled')) database.exec('ALTER TABLE calibration ADD COLUMN settled REAL');
 	statements = {
 		// La chiave è il bucket e non l'orario: dentro il bucket aperto l'orario
 		// avanza ad ogni lettura, e la riga deve restare una sola.
@@ -204,7 +214,7 @@ function openDatabase(): DatabaseSync {
 		deletePlantSamples: database.prepare('DELETE FROM samples WHERE plant_id = ?'),
 		deleteSample: database.prepare('DELETE FROM samples WHERE bucket = ? AND plant_id = ? AND series = ?'),
 		deletePlantObservations: database.prepare('DELETE FROM calibration WHERE plant_id = ?'),
-		insertObservation: database.prepare('INSERT INTO calibration (plant_id, action_id, at, dry, wet) VALUES (?, ?, ?, ?, ?)'),
+		insertObservation: database.prepare('INSERT INTO calibration (plant_id, action_id, at, dry, wet, settled) VALUES (?, ?, ?, ?, ?, ?)'),
 	};
 	return database;
 }
@@ -224,7 +234,7 @@ function inTransaction(work: () => void): void {
 function writeObservations(plantId: string, list: ArchivedObservation[]): void {
 	if (!statements) return;
 	statements.deletePlantObservations.run(plantId);
-	for (const o of list) statements.insertObservation.run(plantId, o.actionId, o.at, o.dry, o.wet);
+	for (const o of list) statements.insertObservation.run(plantId, o.actionId, o.at, o.dry, o.wet, o.settled ?? null);
 }
 
 // Formato di history.json (<= 1.12.1): campioni [secondi, valore, picco?, conca?],
@@ -311,12 +321,12 @@ function loadFromDatabase(database: DatabaseSync): void {
 	}
 
 	const stored = database
-		.prepare('SELECT plant_id, action_id, at, dry, wet FROM calibration ORDER BY plant_id, at')
-		.all() as { plant_id: string; action_id: string; at: number; dry: number | null; wet: number }[];
+		.prepare('SELECT plant_id, action_id, at, dry, wet, settled FROM calibration ORDER BY plant_id, at')
+		.all() as { plant_id: string; action_id: string; at: number; dry: number | null; wet: number; settled: number | null }[];
 	for (const row of stored) {
 		let list = observations.get(row.plant_id);
 		if (!list) observations.set(row.plant_id, (list = []));
-		const observation = sanitizeObservation({ actionId: row.action_id, at: row.at, dry: row.dry, wet: row.wet });
+		const observation = sanitizeObservation({ actionId: row.action_id, at: row.at, dry: row.dry, wet: row.wet, settled: row.settled });
 		if (observation) list.push(observation);
 		else repaired++;
 	}
@@ -443,6 +453,12 @@ export function getSamples(plantId: string, key: SeriesKey, sinceMs?: number): S
 	return series.filter((s) => s.t >= sinceMs);
 }
 
+/** L'ultimo campione della serie, senza copiare la serie intera. */
+export function getLastSample(plantId: string, key: SeriesKey): Sample | undefined {
+	const series = history.get(plantId)?.[key];
+	return series?.[series.length - 1];
+}
+
 export function dropPlantHistory(plantId: string): void {
 	const series = history.get(plantId);
 	if (series) {
@@ -468,7 +484,7 @@ export function getArchivedObservations(plantId: string): ArchivedObservation[] 
 }
 
 function sameObservation(a: ArchivedObservation, b: ArchivedObservation): boolean {
-	return a.actionId === b.actionId && a.at === b.at && a.dry === b.dry && a.wet === b.wet;
+	return a.actionId === b.actionId && a.at === b.at && a.dry === b.dry && a.wet === b.wet && (a.settled ?? null) === (b.settled ?? null);
 }
 
 /**

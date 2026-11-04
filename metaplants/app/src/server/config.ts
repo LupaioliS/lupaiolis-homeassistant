@@ -13,6 +13,9 @@ interface HaOptions {
 	ha_discovery_prefix?: string;
 	lang?: string;
 	sensor_poll_seconds?: number;
+	gemini_api_key?: string;
+	gemini_model?: string;
+	assistant_hour?: number;
 }
 
 // Limiti di sicurezza: sotto i 5s si martella Home Assistant senza guadagno reale,
@@ -25,6 +28,15 @@ function readPollSeconds(raw: unknown): number {
 	const value = Number(raw);
 	if (!Number.isFinite(value) || value <= 0) return DEFAULT_POLL_SECONDS;
 	return Math.min(MAX_POLL_SECONDS, Math.max(MIN_POLL_SECONDS, Math.round(value)));
+}
+
+const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash-lite';
+const DEFAULT_ASSISTANT_HOUR = 8;
+
+function readHour(raw: unknown): number {
+	const value = Number(raw);
+	if (raw === '' || raw == null || !Number.isFinite(value)) return DEFAULT_ASSISTANT_HOUR;
+	return Math.min(23, Math.max(0, Math.round(value)));
 }
 
 function readHaOptions(): HaOptions {
@@ -54,6 +66,11 @@ export interface AppConfig {
 	lang: string;
 	/** Ogni quanto rileggere i sensori da Home Assistant. */
 	sensorPollSeconds: number;
+	/** Chiave API di Google AI Studio. Vuota = assistente spento. */
+	geminiApiKey: string;
+	geminiModel: string;
+	/** Ora locale (0-23) del controllo giornaliero dell'assistente. */
+	assistantHour: number;
 }
 
 export const config: AppConfig = {
@@ -63,4 +80,7 @@ export const config: AppConfig = {
 	discoveryPrefix: haOptions.ha_discovery_prefix || process.env.HA_DISCOVERY_PREFIX || 'homeassistant',
 	lang: haOptions.lang || process.env.METAPLANTS_LANG || 'it',
 	sensorPollSeconds: readPollSeconds(haOptions.sensor_poll_seconds ?? process.env.SENSOR_POLL_SECONDS),
+	geminiApiKey: (haOptions.gemini_api_key || process.env.GEMINI_API_KEY || '').trim(),
+	geminiModel: (haOptions.gemini_model || process.env.GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim(),
+	assistantHour: readHour(haOptions.assistant_hour ?? process.env.ASSISTANT_HOUR),
 };

@@ -50,6 +50,10 @@ export interface PlantSensors {
 	// Ultimo salto rilevato: evita di richiedere conferma due volte per la stessa
 	// irrigazione mentre il terreno è ancora bagnato.
 	lastSoilJumpAt?: string;
+	// Quando il terreno è risalito davvero (l'istante della risalita, non del
+	// rilevamento): "sì, ho innaffiato" registra l'acqua a quest'ora, così la
+	// calibrazione la ritrova anche se rispondi giorni dopo.
+	soilJumpRiseAt?: string;
 	// Deprecati: lo storico letture vive in history.db (vedi server/history.ts), che
 	// tiene giorni di dati invece di 10 campioni e non riscrive plants.json ad ogni poll.
 	// Restano solo per migrare i dati salvati dalle versioni <= 1.9.3.
@@ -93,8 +97,15 @@ export interface CalibrationObservation {
 	at: string;
 	/** Minimo grezzo nelle 12h precedenti = "qui era secco". */
 	dry: number | null;
-	/** Massimo grezzo attorno all'irrigazione = "qui era pieno". */
+	/**
+	 * Livello grezzo a cui il terreno si è assestato dopo l'acqua = "qui era pieno"
+	 * (dalla 1.15.0; prima era il picco). null finché non si è assestato.
+	 */
 	wet: number | null;
+	/** Picco grezzo subito dopo l'acqua: dura pochi minuti, solo informativo. */
+	peak?: number | null;
+	/** Acqua data a terreno ancora umido (sopra il 40% della scala): non ha insegnato il punto secco. */
+	early?: boolean;
 	/** Chi ha dato l'acqua, se registrato: spiega un ciclo fuori scala. */
 	source?: WaterSource;
 	/** Quanta acqua, se registrato: con `fill` dice se la dose bastava. */
@@ -306,4 +317,67 @@ export interface PlantActionPatch {
 	potSizeCm?: number | null;
 	source?: WaterSource | null;
 	soil?: SoilFeel;
+}
+
+// ── Assistente (Gemini) ──────────────────────────────────────────────────────
+
+/**
+ * Cosa può fare l'assistente, e niente altro: il server rifiuta qualunque azione
+ * fuori da questo elenco. Registrare irrigazioni o concimazioni non c'è di
+ * proposito: sono fatti, e li conosce solo chi era davanti alla pianta.
+ */
+export type AssistantActionType =
+	| 'set_watering_schedule'
+	| 'set_fertilizing_schedule'
+	| 'set_soil_threshold'
+	| 'add_health_issue'
+	| 'resolve_health_issue'
+	| 'append_note';
+
+export interface AssistantAction {
+	type: AssistantActionType;
+	/** set_*_schedule: stagione da cambiare. */
+	season?: Season;
+	/** set_*_schedule: giorni; set_soil_threshold: percentuale. */
+	value?: number;
+	/** add_health_issue */
+	issueType?: HealthIssueType;
+	issueName?: string;
+	/** resolve_health_issue */
+	issueId?: string;
+	/** append_note, add_health_issue, resolve_health_issue (trattamento). */
+	text?: string;
+}
+
+export type AssistantCardKind = 'advice' | 'question' | 'action';
+export type AssistantCardStatus = 'open' | 'answered' | 'applied' | 'dismissed' | 'undone';
+
+export interface AssistantCard {
+	id: string;
+	createdAt: string;
+	/** Pianta a cui si riferisce; assente = riguarda tutte. */
+	plantId?: string;
+	kind: AssistantCardKind;
+	title: string;
+	body: string;
+	/** Solo per le domande: le risposte possibili, una si sceglie con un tocco. */
+	options?: string[];
+	answer?: string;
+	action?: AssistantAction;
+	/** L'assistente l'ha applicata da sé (solo cambi piccoli, vedi server/assistant.ts). */
+	autoApplied?: boolean;
+	/** Valore prima del cambio, per annullare. */
+	previous?: unknown;
+	status: AssistantCardStatus;
+	updatedAt: string;
+}
+
+export interface AssistantState {
+	/** false = nessuna chiave Gemini configurata. */
+	enabled: boolean;
+	model: string;
+	lastRunAt: string | null;
+	lastError: string | null;
+	running: boolean;
+	cards: AssistantCard[];
 }

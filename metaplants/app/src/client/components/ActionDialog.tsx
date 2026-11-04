@@ -23,6 +23,10 @@ interface ActionDialogProps {
 	amountHint?: string | null;
 	titleOverride?: string;
 	subtitle?: string;
+	/** false = si chiude solo dai pulsanti (la domanda "hai innaffiato?"). */
+	closeOnOverlay?: boolean;
+	/** Testo del pulsante che chiude senza confermare (default "Annulla"). */
+	cancelLabel?: string;
 	onConfirm: (result: ActionDialogResult) => void | Promise<void>;
 	onClose: () => void;
 }
@@ -41,7 +45,7 @@ const POT_MAX_CM = 60;
 const POT_MIN_SCALE = 0.55;
 const POT_MAX_SCALE = 1.5;
 
-export function ActionDialog({ type, plant, defaultValue, defaultAmount, amountHint, titleOverride, subtitle, onConfirm, onClose }: ActionDialogProps) {
+export function ActionDialog({ type, plant, defaultValue, defaultAmount, amountHint, titleOverride, subtitle, closeOnOverlay = true, cancelLabel, onConfirm, onClose }: ActionDialogProps) {
 	const fallback = type === 'fertilize' ? FERTILIZE_DEFAULT_G : Math.min(POT_MAX_CM, plant.potSizeCm ?? 12);
 	const [value, setValue] = useState(defaultValue ?? fallback);
 	const [amount, setAmount] = useState<WaterAmount>(defaultAmount ?? 'normal');
@@ -76,7 +80,7 @@ export function ActionDialog({ type, plant, defaultValue, defaultAmount, amountH
 	const potScale = POT_MIN_SCALE + ((value - POT_MIN_CM) / (POT_MAX_CM - POT_MIN_CM)) * (POT_MAX_SCALE - POT_MIN_SCALE);
 
 	return (
-		<div className="modal-overlay" onClick={onClose}>
+		<div className="modal-overlay" onClick={closeOnOverlay ? onClose : undefined}>
 			<div className="modal action-dialog" onClick={(e) => e.stopPropagation()}>
 				<h2>{title}</h2>
 				{subtitle && <p className="action-dialog-subtitle">{subtitle}</p>}
@@ -161,7 +165,7 @@ export function ActionDialog({ type, plant, defaultValue, defaultAmount, amountH
 				)}
 
 				<div className="form-actions">
-					<button type="button" className="btn btn-secondary" onClick={onClose}>{t('plant.cancel')}</button>
+					<button type="button" className="btn btn-secondary" onClick={onClose}>{cancelLabel ?? t('plant.cancel')}</button>
 					<button type="button" className="btn btn-primary" onClick={handleConfirm} disabled={submitting}>
 						{t('actions.confirm')}
 					</button>
