@@ -229,7 +229,7 @@ What to produce (0 to ${MAX_CARDS_PER_RUN} cards; zero is fine on a quiet day �
 - "advice": a useful observation or tip tied to the data (season change, a plant drying faster than its schedule, fertilizing in the rest season, a health issue open for long, repotting overdue for the species).
 - "question": when an answer from the user would change your advice. Give 2-4 short options. IMPORTANT: if a card asks the user anything, it MUST be a "question" with options — an "advice" card must never end with a question, because the user has no way to answer it.
 - For a health issue open for weeks, prefer an "action" card with resolve_health_issue (the user confirms if it's gone) over asking in free text.
-- "action": a concrete change to the app's data. Use only this catalog, with these fields:
+- "action": a concrete change to the app's data. Whenever you suggest a change that this catalog can make (e.g. "let's move it to 21 days"), it MUST be an "action" card with the action object fully filled and plantId set — never put such a proposal only in the text of an advice card, the user would have no button to apply it. Use only this catalog, with these fields (season is required for schedules: use today's season if the change is for now):
   - set_watering_schedule {season, value: days 1-90}
   - set_fertilizing_schedule {season, value: days 1-180}
   - set_soil_threshold {value: raw % 1-90} — only for plants with a soil sensor and learnedFromWaterings = 0
@@ -237,45 +237,55 @@ What to produce (0 to ${MAX_CARDS_PER_RUN} cards; zero is fine on a quiet day �
   - resolve_health_issue {issueId, text: treatment}
   - append_note {text: max 300 chars}
   Set autoApply true only for small, low-risk changes you are confident about (e.g. nudging a schedule by a day or two to match how the plant really behaves). The app may still ask the user to confirm. Anything about health always needs confirmation: autoApply false.
-- Always set plantId to the plant's id when the card is about one plant. Be specific: name the plant and the numbers that support the advice. Keep body under 280 characters.
+- Always set plantId to the plant's id when the card is about one plant ("all" only for cards about every plant), and always fill action: {type: "none"} when the card proposes no change. Be specific: name the plant and the numbers that support the advice. Keep body under 280 characters.
 - Never invent events (waterings, pests) that are not in the data, and never propose logging a watering or fertilizing: only the user knows what they did.`;
 }
 
-const RESPONSE_SCHEMA = {
-	type: 'OBJECT',
-	properties: {
-		cards: {
-			type: 'ARRAY',
-			items: {
-				type: 'OBJECT',
-				properties: {
-					plantId: { type: 'STRING', nullable: true },
-					kind: { type: 'STRING', enum: KINDS },
-					title: { type: 'STRING' },
-					body: { type: 'STRING' },
-					options: { type: 'ARRAY', items: { type: 'STRING' }, nullable: true },
-					autoApply: { type: 'BOOLEAN', nullable: true },
-					action: {
-						type: 'OBJECT',
-						nullable: true,
-						properties: {
-							type: { type: 'STRING', enum: ACTION_TYPES },
-							season: { type: 'STRING', enum: SEASONS, nullable: true },
-							value: { type: 'NUMBER', nullable: true },
-							issueType: { type: 'STRING', enum: ['pest', 'disease', 'fungus'], nullable: true },
-							issueName: { type: 'STRING', nullable: true },
-							issueId: { type: 'STRING', nullable: true },
-							text: { type: 'STRING', nullable: true },
+// Le scelte chiuse si danno al modello come enum, non come istruzioni: dai dati
+// reali gemini-3.8-flash ha scritto nel campo della pianta "<id> companion: Belin
+// ... placeholder text" e ha omesso l'azione, e la card è arrivata senza pulsante.
+// Con l'enum può scegliere solo un id vero; con `action` obbligatorio (con "none"
+// come scelta esplicita) non può più dimenticarla.
+const NO_PLANT = 'all';
+const NO_ACTION = 'none';
+
+function responseSchema(plantIds: string[], issueIds: string[]) {
+	return {
+		type: 'OBJECT',
+		properties: {
+			cards: {
+				type: 'ARRAY',
+				items: {
+					type: 'OBJECT',
+					properties: {
+						plantId: { type: 'STRING', enum: [...plantIds, NO_PLANT] },
+						kind: { type: 'STRING', enum: KINDS },
+						title: { type: 'STRING' },
+						body: { type: 'STRING' },
+						options: { type: 'ARRAY', items: { type: 'STRING' }, nullable: true },
+						autoApply: { type: 'BOOLEAN', nullable: true },
+						action: {
+							type: 'OBJECT',
+							properties: {
+								type: { type: 'STRING', enum: [...ACTION_TYPES, NO_ACTION] },
+								season: { type: 'STRING', enum: SEASONS, nullable: true },
+								value: { type: 'NUMBER', nullable: true },
+								issueType: { type: 'STRING', enum: ['pest', 'disease', 'fungus'], nullable: true },
+								issueName: { type: 'STRING', nullable: true },
+								...(issueIds.length > 0 ? { issueId: { type: 'STRING', enum: issueIds, nullable: true } } : {}),
+								text: { type: 'STRING', nullable: true },
+							},
+							required: ['type'],
 						},
-						required: ['type'],
 					},
+					required: ['plantId', 'kind', 'title', 'body', 'action'],
+					propertyOrdering: ['plantId', 'kind', 'title', 'body', 'options', 'action', 'autoApply'],
 				},
-				required: ['kind', 'title', 'body'],
 			},
 		},
-	},
-	required: ['cards'],
-};
+		required: ['cards'],
+	};
+}
 
 interface RawCard {
 	plantId?: string | null;
@@ -305,6 +315,20 @@ interface GeminiResponse {
 	usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
 }
 
+function schemaForCurrentPlants() {
+	const plants = store.getPlants();
+	const issueIds = plants.flatMap((p) => (p.healthIssues ?? []).filter((i) => !i.resolvedDate).map((i) => i.id));
+	return responseSchema(plants.map((p) => p.id), issueIds);
+}
+
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+/** La pianta della card, anche se l'id arriva sporco (testo attorno all'uuid). */
+function resolvePlant(raw: string | null | undefined): Plant | undefined {
+	if (!raw || raw === NO_PLANT) return undefined;
+	return store.getPlant(raw) ?? store.getPlant(raw.match(UUID_RE)?.[0] ?? '');
+}
+
 async function requestGemini(context: unknown, thinking: Record<string, unknown> | undefined): Promise<Response> {
 	return fetch(`${API_BASE}/${encodeURIComponent(config.geminiModel)}:generateContent`, {
 		method: 'POST',
@@ -314,7 +338,7 @@ async function requestGemini(context: unknown, thinking: Record<string, unknown>
 			contents: [{ role: 'user', parts: [{ text: JSON.stringify(context) }] }],
 			generationConfig: {
 				responseMimeType: 'application/json',
-				responseSchema: RESPONSE_SCHEMA,
+				responseSchema: schemaForCurrentPlants(),
 				temperature: 0.3,
 				// È un tetto, non un costo: si pagano i token usati (~500 per un giro).
 				// Largo perché un modello che ragiona comunque non resti senza spazio.
@@ -369,7 +393,9 @@ function validateAction(raw: RawCard['action'], plant: Plant | undefined): Assis
 	if (!raw || !plant || !ACTION_TYPES.includes(raw.type as AssistantActionType)) return null;
 	const type = raw.type as AssistantActionType;
 	const value = typeof raw.value === 'number' && Number.isFinite(raw.value) ? Math.round(raw.value) : null;
-	const season = SEASONS.includes(raw.season as Season) ? (raw.season as Season) : null;
+	// "Portiamolo a 21 giorni" senza stagione vuol dire adesso: era il caso più
+	// comune di azione scartata, con la card rimasta senza pulsante.
+	const season = SEASONS.includes(raw.season as Season) ? (raw.season as Season) : getCurrentSeason();
 
 	switch (type) {
 		case 'set_watering_schedule':
@@ -531,7 +557,7 @@ function toCard(raw: RawCard, now: string): AssistantCard | null {
 	const title = cleanText(raw.title, 120);
 	const body = cleanText(raw.body, 600);
 	if (!title || !body) return null;
-	const plant = raw.plantId ? store.getPlant(raw.plantId) : undefined;
+	const plant = resolvePlant(raw.plantId);
 	let kind: AssistantCardKind = KINDS.includes(raw.kind as AssistantCardKind) ? (raw.kind as AssistantCardKind) : 'advice';
 
 	const card: AssistantCard = {
@@ -551,10 +577,15 @@ function toCard(raw: RawCard, now: string): AssistantCard | null {
 		else kind = card.kind = 'advice';
 	}
 
+	// Una proposta compilata vale come azione anche se il modello l'ha etichettata
+	// come consiglio: il pulsante serve proprio lì.
+	if (kind === 'advice' && ACTION_TYPES.includes(raw.action?.type as AssistantActionType)) kind = card.kind = 'action';
+
 	if (kind === 'action') {
 		const action = validateAction(raw.action, plant);
 		if (!action) {
 			// Fuori catalogo o non sensata per questa pianta: resta il consiglio, senza pulsante.
+			console.warn(`[Assistant] Action rejected (plant ${raw.plantId ?? 'none'}${plant ? '' : ' not found'}): ${JSON.stringify(raw.action)}`);
 			card.kind = 'advice';
 		} else {
 			card.action = action;

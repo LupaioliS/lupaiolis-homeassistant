@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.2
+
+**Assistant: proposals always have their Apply button.** "Let's move it to 21 days" could arrive with no Apply button: the model had written junk in the plant field ("<id> companion: … placeholder text") or left out the action, and the card was silently turned into plain advice. The response format now only allows real plant and health-issue ids and always requires an action (or an explicit "none"); a schedule change without a season means the current one; a stray id is recovered from the text around it; a proposal labelled as advice still gets its button; and any action still rejected is logged with the reason. Checked over three real runs: every proposal arrived complete
+
 ## 1.15.1
 
 **Assistant: fixed "Unterminated string in JSON" with Gemini 3 models.** Models that think before answering spend that thinking inside the output limit: with `gemini-3.8-flash` 1,965 of the 2,048 available tokens went to thinking and the cards arrived cut off halfway.
