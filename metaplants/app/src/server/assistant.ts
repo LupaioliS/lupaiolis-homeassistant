@@ -227,7 +227,8 @@ How the data works:
 
 What to produce (0 to ${MAX_CARDS_PER_RUN} cards; zero is fine on a quiet day — never pad):
 - "advice": a useful observation or tip tied to the data (season change, a plant drying faster than its schedule, fertilizing in the rest season, a health issue open for long, repotting overdue for the species).
-- "question": when an answer from the user would change your advice. Give 2-4 short options.
+- "question": when an answer from the user would change your advice. Give 2-4 short options. IMPORTANT: if a card asks the user anything, it MUST be a "question" with options — an "advice" card must never end with a question, because the user has no way to answer it.
+- For a health issue open for weeks, prefer an "action" card with resolve_health_issue (the user confirms if it's gone) over asking in free text.
 - "action": a concrete change to the app's data. Use only this catalog, with these fields:
   - set_watering_schedule {season, value: days 1-90}
   - set_fertilizing_schedule {season, value: days 1-180}
@@ -286,41 +287,75 @@ interface RawCard {
 	action?: (Partial<AssistantAction> & { type?: string }) | null;
 }
 
-async function callGemini(context: unknown): Promise<RawCard[]> {
-	const generationConfig: Record<string, unknown> = {
-		responseMimeType: 'application/json',
-		responseSchema: RESPONSE_SCHEMA,
-		temperature: 0.3,
-		maxOutputTokens: 2048,
-	};
-	// I flash 2.5 "pensano" di default e il pensiero si paga come output: per dei
-	// consigli su dati già digeriti non serve.
-	if (/2\.5-flash/.test(config.geminiModel)) generationConfig.thinkingConfig = { thinkingBudget: 0 };
+/**
+ * Il ragionamento al minimo, per famiglia di modello. I modelli che "pensano"
+ * spendono il pensiero dentro maxOutputTokens: con gemini-3.8-flash 1965 token su
+ * 2048 se ne andavano a ragionare e il JSON arrivava troncato a metà. Per dei
+ * consigli su dati già digeriti il ragionamento non serve, e si paga come output.
+ */
+function thinkingConfig(model: string): Record<string, unknown> | undefined {
+	if (/^gemini-2\.5-flash/.test(model)) return { thinkingBudget: 0 };
+	// Dalla serie 3 si regola a livelli; "minimal" non c'è su tutti, "low" sì.
+	if (/^gemini-[3-9]/.test(model)) return { thinkingLevel: 'low' };
+	return undefined;
+}
 
-	const res = await fetch(`${API_BASE}/${encodeURIComponent(config.geminiModel)}:generateContent`, {
+interface GeminiResponse {
+	candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+	usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
+}
+
+async function requestGemini(context: unknown, thinking: Record<string, unknown> | undefined): Promise<Response> {
+	return fetch(`${API_BASE}/${encodeURIComponent(config.geminiModel)}:generateContent`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.geminiApiKey },
 		body: JSON.stringify({
 			systemInstruction: { parts: [{ text: systemInstruction() }] },
 			contents: [{ role: 'user', parts: [{ text: JSON.stringify(context) }] }],
-			generationConfig,
+			generationConfig: {
+				responseMimeType: 'application/json',
+				responseSchema: RESPONSE_SCHEMA,
+				temperature: 0.3,
+				// È un tetto, non un costo: si pagano i token usati (~500 per un giro).
+				// Largo perché un modello che ragiona comunque non resti senza spazio.
+				maxOutputTokens: 8192,
+				...(thinking ? { thinkingConfig: thinking } : {}),
+			},
 		}),
 		signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 	});
+}
+
+async function callGemini(context: unknown): Promise<RawCard[]> {
+	const thinking = thinkingConfig(config.geminiModel);
+	let res = await requestGemini(context, thinking);
+	// Un modello che non accetta quell'impostazione rifiuta la richiesta senza
+	// generare niente (quindi senza costo): si riprova una volta senza.
+	if (res.status === 400 && thinking) {
+		const detail = await res.text().catch(() => '');
+		if (!/think/i.test(detail)) throw new Error(`Gemini HTTP 400: ${detail.slice(0, 300)}`);
+		console.warn(`[Assistant] ${config.geminiModel} rejected thinkingConfig, retrying without it`);
+		res = await requestGemini(context, undefined);
+	}
 	if (!res.ok) {
 		const detail = (await res.text().catch(() => '')).slice(0, 300);
 		throw new Error(`Gemini HTTP ${res.status}${detail ? `: ${detail}` : ''}`);
 	}
-	const data = (await res.json()) as {
-		candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
-		usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
-	};
+	const data = (await res.json()) as GeminiResponse;
 	const usage = data.usageMetadata;
-	if (usage) console.log(`[Assistant] Tokens: ${usage.promptTokenCount ?? '?'} in, ${usage.candidatesTokenCount ?? '?'} out`);
+	if (usage) {
+		console.log(`[Assistant] Tokens: ${usage.promptTokenCount ?? '?'} in, ${usage.candidatesTokenCount ?? '?'} out, ${usage.thoughtsTokenCount ?? 0} thinking`);
+	}
+	const finish = data.candidates?.[0]?.finishReason;
 	const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('') ?? '';
-	if (!text) throw new Error(`Gemini returned no content (${data.candidates?.[0]?.finishReason ?? 'unknown'})`);
-	const parsed = JSON.parse(text) as { cards?: RawCard[] };
-	return Array.isArray(parsed.cards) ? parsed.cards : [];
+	if (finish === 'MAX_TOKENS') throw new Error('Gemini response cut off (MAX_TOKENS): try a model that thinks less');
+	if (!text) throw new Error(`Gemini returned no content (${finish ?? 'unknown'})`);
+	try {
+		const parsed = JSON.parse(text) as { cards?: RawCard[] };
+		return Array.isArray(parsed.cards) ? parsed.cards : [];
+	} catch (err) {
+		throw new Error(`Gemini returned invalid JSON (${finish ?? 'unknown'}): ${(err as Error).message}`);
+	}
 }
 
 // ── Validazione e azioni ────────────────────────────────────────────────────

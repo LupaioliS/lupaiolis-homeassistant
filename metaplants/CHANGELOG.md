@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.15.1
+
+**Assistant: fixed "Unterminated string in JSON" with Gemini 3 models.** Models that think before answering spend that thinking inside the output limit: with `gemini-3.8-flash` 1,965 of the 2,048 available tokens went to thinking and the cards arrived cut off halfway.
+
+- Thinking is now kept to a minimum on every model family (`thinkingLevel: low` from Gemini 3, `thinkingBudget: 0` on 2.5 Flash). Measured: 0 thinking tokens, ~5,000 in and ~400–850 out per check
+- The output limit is raised to 8,192 tokens. It's a cap, not a cost: you pay for what's used
+- If a future model rejects the thinking setting, the check retries once without it (a rejected request costs nothing)
+- A cut-off answer now says so clearly instead of showing a JSON parse error
+- Questions always come with answer buttons: the assistant was asking things inside advice cards, which had no way to reply. For health issues open for weeks it now proposes "mark as resolved", waiting for your confirmation
+
 ## 1.15.0
 
 **Assistant (Gemini).** With a Google AI Studio key in the new `gemini_api_key` option, one check a day (`assistant_hour`, default 8) turns your plants' data into cards at the top of the page: advice, questions with tap-to-answer options, and proposed actions.
