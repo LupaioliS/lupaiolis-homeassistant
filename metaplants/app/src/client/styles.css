@@ -907,6 +907,15 @@ header h1 {
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 14px;
+  /* Un fieldset di default si allarga quanto il contenuto più largo: i menu dei
+     sensori (entity_id + valore) uscivano dallo schermo a 390px. */
+  min-width: 0;
+}
+
+.form-fieldset select,
+.form-fieldset input {
+  max-width: 100%;
+  min-width: 0;
 }
 
 .form-fieldset legend {

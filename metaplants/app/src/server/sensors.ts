@@ -99,7 +99,7 @@ const predictionMemo = new Map<string, PredictionMemo>();
 function memoKey(plant: Plant, currentSoil: number | null): string {
 	const last = getLastSample(plant.id, 'soil');
 	const s = plant.sensors;
-	return [currentSoil, last?.t, last?.v, last?.peak, last?.trough, plant.lastWatered, s?.soilHumidityThreshold, s?.soilJumpDelta].join('|');
+	return [s?.soilHumidity, currentSoil, last?.t, last?.v, last?.peak, last?.trough, plant.lastWatered, s?.soilHumidityThreshold, s?.soilJumpDelta].join('|');
 }
 
 function computePrediction(plant: Plant, currentSoil: number | null, now: number, force = false): PredictionMemo {

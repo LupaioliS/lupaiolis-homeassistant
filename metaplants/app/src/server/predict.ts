@@ -493,7 +493,7 @@ function isEarly(dry: number, calibration: SoilCalibration): boolean {
  * 0.83 punti/giorno invece di ~2). Non tocca la scala né l'allerta, che restano
  * legate alle sole irrigazioni registrate.
  */
-function wettingTimes(soil: Sample[], waterings: number[], riseDelta?: number): number[] {
+export function wettingTimes(soil: Sample[], waterings: number[], riseDelta?: number): number[] {
 	const times = [...waterings, ...findRises(soil, riseDelta).map((i) => soil[i].t)].sort((a, b) => a - b);
 	// Risalita e pulsante della stessa acqua: vale il più tardo, da lì si asciuga.
 	const merged: number[] = [];
@@ -565,12 +565,20 @@ export function predictWatering(
 	currentSoil: number | null,
 	now: number = Date.now(),
 ): WateringPrediction | null {
-	const soil = getSamples(plant.id, 'soil');
+	// Senza un sensore configurato la storia del terreno non conta: è di un sensore
+	// che ora sta in un altro vaso. Il Basilico, rimasto con i campioni di
+	// sensorepianta3 passato alla Kentia, mostrava "🧠 ~2g" con confidenza alta, e la
+	// stima al comando gli toglieva la prova del dito. Campioni e archivio della
+	// calibrazione restano: se il sensore torna, la scala torna con lui.
+	const hasSoilSensor = !!plant.sensors?.soilHumidity;
+	const soil = hasSoilSensor ? getSamples(plant.id, 'soil') : [];
 	const events = waterEvents(actions);
 	const waterings = events.map((e) => e.at);
 	const cycleInfo = averageCycle(waterings);
 
-	const calibration = calibrate(plant.id, soil, events, now, plant.sensors?.soilHumidityThreshold, plant.sensors?.soilJumpDelta);
+	const calibration = hasSoilSensor
+		? calibrate(plant.id, soil, events, now, plant.sensors?.soilHumidityThreshold, plant.sensors?.soilJumpDelta)
+		: null;
 	const dryRate = soil.length > 0 ? estimateDryRate(soil, wettingTimes(soil, waterings, plant.sensors?.soilJumpDelta)) : null;
 
 	// Stima dal sensore: quanto manca a scendere fino al livello a cui innaffi.

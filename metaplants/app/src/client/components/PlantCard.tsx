@@ -130,7 +130,7 @@ function buildPredictionInfo(prediction: WateringPrediction): string[] {
 		lines.push(t('prediction.averageCycle').replace('{days}', String(prediction.averageCycleDays)));
 	}
 	if (prediction.cycles > 0) {
-		lines.push(t('prediction.learnedFrom').replace('{count}', String(prediction.cycles)));
+		lines.push(prediction.cycles === 1 ? t('prediction.learnedFromOne') : t('prediction.learnedFrom').replace('{count}', String(prediction.cycles)));
 	}
 	return lines;
 }
@@ -146,7 +146,7 @@ function buildCalibrationInfo(prediction: WateringPrediction): string[] {
 	// La scala si muove solo sulle irrigazioni registrate: dirlo qui evita di
 	// chiedersi perché il numero non cambia mentre quello grezzo balla.
 	if (calibration.samples > 0) {
-		lines.push(t('prediction.calibrationSamples').replace('{count}', String(calibration.samples)));
+		lines.push(calibration.samples === 1 ? t('prediction.calibrationSamplesOne') : t('prediction.calibrationSamples').replace('{count}', String(calibration.samples)));
 	} else {
 		lines.push(t('prediction.calibrationPending'));
 	}
@@ -321,6 +321,13 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 	const fingerTest = needsFingerTest(plant, water);
 	const lastCheck = water.due.check;
 
+	// Col sensore che dice "non ancora", fra quanto secondo la stima. Non quando la
+	// stima è già a zero (con il terreno umido si è solo sbagliata) né quando sta
+	// ancora imparando: un "~2g" a bassa confidenza sembrerebbe una promessa.
+	const moistEta = water.soil.source !== 'none' && prediction && !isPredictionDueNow(prediction) && prediction.confidence !== 'low'
+		? formatPredictionEta(prediction)
+		: null;
+
 	// Finché la stima non ha imparato abbastanza resta a margine: qui comanda solo
 	// quando assessWater la promuove (confidence alta).
 	const waterStatus = soilNeedsWater
@@ -332,7 +339,12 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 		// Il sensore dice "non ancora": il calendario scaduto non conta, e una stima
 		// arrivata a zero mentre il terreno è ancora umido si è solo sbagliata.
 		: water.source === 'soil' || (water.source === 'prediction' && prediction && isPredictionDueNow(prediction))
-			? { overdue: false, label: t('status.soilStillMoist'), dueAt: scheduleStatus.dueAt }
+			? {
+				overdue: false,
+				// Una sola risposta a "quando": la stima sta qui, non in una pillola a parte.
+				label: moistEta ? `${t('status.soilStillMoist')} · ${moistEta}` : t('status.soilStillMoist'),
+				dueAt: scheduleStatus.dueAt,
+			}
 		: water.source === 'prediction' && prediction
 			? { overdue: water.overdue, label: `🧠 ${formatPredictionEta(prediction)}`, dueAt: scheduleStatus.dueAt }
 			: fingerTest
@@ -343,7 +355,7 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 	const waterIcon = water.source === 'schedule' && !soilNeedsWater && (fingerTest || lastCheck) ? '👆' : '💧';
 
 	const waterInfo = [
-		...(water.source === 'prediction' && prediction ? buildPredictionInfo(prediction) : []),
+		...((water.source === 'prediction' || moistEta) && prediction ? buildPredictionInfo(prediction) : []),
 		...(scheduleStatus.dueAt != null ? [`${t('status.scheduleDue')}: ${formatDateTime(scheduleStatus.dueAt)}`] : []),
 		...(lastCheck
 			? [t('check.lastCheck')
@@ -694,10 +706,10 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 			{readings && (readings.temperature !== null || readings.ambientHumidity !== null) && (
 				<div className="status">
 					{readings.temperature !== null && (
-						<span className="status-item ok">🌡️ {readings.temperature}°</span>
+						<span className="status-item ok">🌡️ {Math.round(readings.temperature * 10) / 10}°</span>
 					)}
 					{readings.ambientHumidity !== null && (
-						<span className="status-item ok">💦 {readings.ambientHumidity}%</span>
+						<span className="status-item ok">💦 {Math.round(readings.ambientHumidity)}%</span>
 					)}
 				</div>
 			)}
@@ -733,7 +745,7 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 						openId={openInfo}
 						onToggle={setOpenInfo}
 					>
-						🪴 {readings.soilHumidity}%
+						🪴 {Math.round(readings.soilHumidity)}%
 					</InfoPill>
 					<button
 						type="button"
@@ -765,8 +777,10 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 				/>
 			)}
 
-			{/* Finché la stima non guida lo stato resta un'informazione a margine. */}
-			{prediction && water.source !== 'prediction' && (
+			{/* Finché la stima non guida lo stato resta un'informazione a margine. Senza
+			    sensore (source "history") è solo la media dei divari fra irrigazioni: il
+			    calendario detto in un altro modo, e una seconda risposta a "quando". */}
+			{prediction && water.source !== 'prediction' && prediction.source !== 'history' && !moistEta && (
 				<div className="status">
 					<InfoPill
 						id="prediction"
@@ -799,7 +813,9 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 				</div>
 			)}
 
-			{waterSuggestion != null && waterSuggestion !== plant.wateringSchedule?.[season] && (
+			{/* Con un sensore che legge il calendario non chiede mai acqua: il suggerimento
+			    sulla scheda sarebbe rumore (resta nel modulo, e l'assistente lo propone). */}
+			{waterSuggestion != null && waterSuggestion !== plant.wateringSchedule?.[season] && water.soil.source === 'none' && (
 				<button
 					type="button"
 					className="btn btn-secondary btn-sm suggestion-btn"
@@ -867,7 +883,7 @@ export function PlantCard({ plant, readings, actions, anchorId, onWater, onFerti
 
 			<div className="card-expandable">
 				<button className="btn btn-link" onClick={() => setShowHealth(!showHealth)}>
-					🏥 {t('health.title')} ({(plant.healthIssues ?? []).length})
+					🏥 {t('health.title')} ({activeIssues.length})
 				</button>
 				<button className="btn btn-link" onClick={() => setShowProducts(!showProducts)}>
 					📦 {t('products.title')} ({(plant.productHistory ?? []).length})

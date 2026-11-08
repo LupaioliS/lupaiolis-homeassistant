@@ -28,6 +28,26 @@ const SSE_WATCHDOG_MS = 10_000;
 const cardAnchorId = (plantId: string) => `plant-${plantId}`;
 const jumpKey = (plant: Plant) => `${plant.id}@${plant.sensors?.lastSoilJumpAt ?? ''}`;
 
+/**
+ * La domanda "hai innaffiato?" con il momento della risalita: spesso arriva ore
+ * dopo (la apri quando passi dalle piante), e "un aumento improvviso" senza
+ * orario non basta a ricordarsi se era la tua acqua o la pioggia.
+ */
+function soilJumpPrompt(plant: Plant): string {
+	const name = plant.nickname || plant.name;
+	const at = plant.sensors?.soilJumpRiseAt ? new Date(plant.sensors.soilJumpRiseAt) : null;
+	if (!at || Number.isNaN(at.getTime())) return t('actions.soilJumpPrompt').replace('{name}', name);
+	const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+	const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+	const daysAgo = Math.round((startOfDay(new Date()) - startOfDay(at)) / 86_400_000);
+	const when = daysAgo === 0
+		? t('actions.whenToday').replace('{time}', time)
+		: daysAgo === 1
+			? t('actions.whenYesterday').replace('{time}', time)
+			: t('actions.whenDate').replace('{date}', at.toLocaleDateString([], { day: 'numeric', month: 'numeric' })).replace('{time}', time);
+	return t('actions.soilJumpPromptAt').replace('{name}', name).replace('{when}', when);
+}
+
 export function App() {
 	const [plants, setPlants] = useState<Plant[]>([]);
 	const [showForm, setShowForm] = useState(false);
@@ -210,7 +230,7 @@ export function App() {
 			type="water"
 			plant={soilWaterQueue[0]}
 			titleOverride={t('actions.soilJumpTitle')}
-			subtitle={t('actions.soilJumpPrompt').replace('{name}', soilWaterQueue[0].nickname || soilWaterQueue[0].name)}
+			subtitle={soilJumpPrompt(soilWaterQueue[0])}
 			defaultAmount={adviseAmount(
 				actionsByPlant[soilWaterQueue[0].id],
 				readings[soilWaterQueue[0].id]?.prediction,

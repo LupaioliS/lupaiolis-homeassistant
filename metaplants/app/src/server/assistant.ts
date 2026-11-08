@@ -18,6 +18,9 @@ import { store } from './store';
 import { broadcast } from './events';
 import { getReadings } from './sensors';
 import { publishPlant } from './mqtt';
+import { getSamples, type Sample } from './history';
+import { wettingTimes } from './predict';
+import { findRises, samplePeak, sampleTrough } from '../shared/soil';
 
 /**
  * L'assistente: un controllo al giorno con Gemini, che risponde con delle card
@@ -52,6 +55,30 @@ const OPEN_CARD_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 // Card degli ultimi giorni mandate come contesto: così non ripete e usa le risposte.
 const CONTEXT_CARDS_MS = 14 * 24 * 60 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+// Storico del terreno dato al modello, riassunto (~250 token a pianta invece di
+// migliaia di campioni): letture per giorno sugli ultimi 14 giorni, cicli sugli
+// ultimi 30 — ne servono almeno tre per poter dire "più veloce del solito".
+const SOIL_TREND_MS = 14 * DAY_MS;
+const SOIL_CYCLES_MS = 30 * DAY_MS;
+const MAX_CYCLES_SENT = 8;
+// Soglie dei segnali, in punti grezzi del sensore.
+const MIN_RATED_CYCLE_DAYS = 1.5;
+const FASTER_RATIO = 1.4;
+const SLOWER_RATIO = 0.6;
+const MIN_RATE_DIFF = 1;
+const NO_RISE_POINTS = 5;
+const SHALLOW_POINTS = 15;
+const BARELY_DRYING_DAYS = 4;
+const BARELY_DRYING_RATE = 1;
+const FLAT_POINTS = 0.5;
+const FLAT_DAYS = 2;
+// Un'acqua registrata entro questo tempo da una risalita è la stessa acqua.
+const LOGGED_RISE_MS = 12 * HOUR_MS;
+// Livello di partenza di un ciclo: mediana delle letture in questa finestra dopo
+// l'acqua, come il livello assestato della calibrazione (il picco dura minuti).
+const SETTLE_FROM_MS = 1 * HOUR_MS;
+const SETTLE_TO_MS = 4 * HOUR_MS;
 
 const SEASONS: Season[] = ['spring', 'summer', 'autumn', 'winter'];
 const KINDS: AssistantCardKind[] = ['advice', 'question', 'action'];
@@ -138,6 +165,183 @@ function publishState(): void {
 const day = (iso?: string) => (iso ? iso.slice(0, 10) : null);
 const round1 = (v: number | null | undefined) => (v == null ? null : Math.round(v * 10) / 10);
 
+const round0 = (v: number) => Math.round(v);
+
+function median(values: number[]): number {
+	const sorted = [...values].sort((a, b) => a - b);
+	const mid = Math.floor(sorted.length / 2);
+	return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+interface SoilCycle {
+	start: number;
+	by: 'watered' | 'unlogged_rise' | 'window_start';
+	from: number | null;
+	to: number;
+	days: number;
+	ongoing: boolean;
+	rate: number | null;
+}
+
+const md = (t: number) => new Date(t).toISOString().slice(5, 10);
+
+/**
+ * Il sensore di terreno in forma leggera per il modello: gli ultimi 14 giorni
+ * (minimo/massimo/ultima lettura per giorno), i cicli degli ultimi 30 (da
+ * un'acqua alla successiva: livello assestato di partenza, arrivo, velocità) e
+ * dei segnali già calcolati qui. I segnali sono il punto: un modello economico,
+ * dato un elenco di numeri, tende a non accorgersi che una pianta si asciuga il
+ * 50% più in fretta di prima (dai dati reali: Rosmarino 6 → 8.5 → 11 punti/giorno
+ * in autunno, mai commentato). Il confronto lo fa il codice, gratis e sempre
+ * uguale; al modello restano il giudizio (specie, posizione, stagione) e le parole.
+ *
+ * I cicli si tagliano con `wettingTimes` di predict.ts — la stessa segmentazione
+ * della velocità di asciugatura — così le risalite non registrate contano anche qui.
+ */
+function soilTrend(plant: Plant, now: number, waterTimes: number[], wetPoint: number | null) {
+	const soil = getSamples(plant.id, 'soil', now - SOIL_CYCLES_MS);
+	if (soil.length < 8) return undefined;
+	const dailySince = now - SOIL_TREND_MS;
+
+	const days = new Map<string, { min: number; max: number; last: number }>();
+	for (const s of soil) {
+		if (s.t < dailySince) continue;
+		const key = md(s.t);
+		const d = days.get(key);
+		if (!d) days.set(key, { min: sampleTrough(s), max: samplePeak(s), last: s.v });
+		else {
+			d.min = Math.min(d.min, sampleTrough(s));
+			d.max = Math.max(d.max, samplePeak(s));
+			d.last = s.v;
+		}
+	}
+	const daily = [...days].map(([d, x]) => `${d} ${round0(x.min)} ${round0(x.max)} ${round0(x.last)}`);
+
+	const since = soil[0].t;
+	const recentWaters = waterTimes.filter((t) => t >= since - LOGGED_RISE_MS);
+	// `wettingTimes` tiene il più tardo tra pulsante e risalita (giusto per la
+	// pendenza); qui il ciclo deve cominciare dalla risalita, se c'è, o il ciclo
+	// prima finisce con letture già bagnate e l'acqua sembra non essere arrivata
+	// (Artemisia: risalita al mattino, acqua registrata alle 22).
+	const rises = findRises(soil, plant.sensors?.soilJumpDelta).map((i) => soil[i].t);
+	const wettings = wettingTimes(soil, recentWaters, plant.sensors?.soilJumpDelta)
+		.map((t) => rises.find((r) => r <= t && t - r <= LOGGED_RISE_MS) ?? t)
+		.filter((t) => t >= since);
+	const starts = wettings.length > 0 && wettings[0] - since < HOUR_MS ? wettings : [since, ...wettings];
+	const cycles: SoilCycle[] = [];
+	starts.forEach((start, i) => {
+		const end = starts[i + 1] ?? now;
+		const inCycle = soil.filter((s) => s.t >= start && s.t < end);
+		if (inCycle.length < 2) return;
+		const isWetting = wettings.includes(start);
+		const last: Sample = inCycle[inCycle.length - 1];
+		// Lo spezzone prima della prima acqua della finestra: se è di poche ore non dice nulla.
+		if (!isWetting && last.t - inCycle[0].t < DAY_MS) return;
+		const settle = inCycle.filter((s) => s.t >= start + SETTLE_FROM_MS && s.t <= start + SETTLE_TO_MS).map((s) => s.v);
+		// Acqua appena data: il livello assestato non c'è ancora, la prima lettura sarebbe quella secca.
+		const from = !isWetting ? inCycle[0].v : settle.length > 0 ? median(settle) : null;
+		const fromAt = isWetting ? start + SETTLE_FROM_MS : inCycle[0].t;
+		const spanDays = Math.max(0, (last.t - fromAt) / DAY_MS);
+		cycles.push({
+			start,
+			// watered = acqua registrata, unlogged_rise = il sensore ha visto acqua che nessuno ha registrato
+			by: !isWetting ? 'window_start' : recentWaters.some((w) => Math.abs(w - start) <= LOGGED_RISE_MS) ? 'watered' : 'unlogged_rise',
+			from,
+			to: last.v,
+			days: spanDays,
+			ongoing: i === starts.length - 1,
+			rate: from != null && spanDays >= 0.5 ? (from - last.v) / spanDays : null,
+		});
+	});
+
+	return {
+		daily,
+		cycles: cycles.slice(-MAX_CYCLES_SENT).map((c) => ({
+			start: new Date(c.start).toISOString().slice(5, 16).replace('T', ' '),
+			by: c.by,
+			from: c.from == null ? null : round0(c.from),
+			to: round0(c.to),
+			days: round1(c.days),
+			ongoing: c.ongoing || undefined,
+			ratePerDay: round1(c.rate),
+		})),
+		signals: soilSignals(soil, cycles, wetPoint, now),
+	};
+}
+
+/**
+ * I fatti notevoli della curva, in frasi brevi (in inglese: le legge il modello).
+ * Sono osservazioni, non diagnosi: una Rhipsalis che perde 3 punti in 10 giorni
+ * è normale, un basilico no — quello lo decide il modello, che sa la specie.
+ */
+function soilSignals(soil: Sample[], cycles: SoilCycle[], wetPoint: number | null, now: number): string[] {
+	const signals: string[] = [];
+	const season = getCurrentSeason();
+	const noRiseDays = new Set<number>();
+
+	// Velocità: l'ultimo ciclo contro i precedenti. Solo cicli partiti da un'acqua
+	// (la curva non è una retta: l'inizio di un ciclo scende più in fretta della
+	// fine) e abbastanza lunghi da avere una pendenza.
+	const rated = cycles.filter((c) => c.by !== 'window_start' && c.rate != null && c.days >= MIN_RATED_CYCLE_DAYS);
+	if (rated.length >= 2) {
+		const latest = rated[rated.length - 1];
+		const usual = median(rated.slice(0, -1).map((c) => c.rate!));
+		// Anche in assoluto: 2 punti/giorno contro 1.4 è +43% ma è rumore del sensore.
+		if (usual > 0.3 && Math.abs(latest.rate! - usual) >= MIN_RATE_DIFF) {
+			const ratio = latest.rate! / usual;
+			const pct = Math.round((ratio - 1) * 100);
+			const cooling = season === 'autumn' || season === 'winter';
+			const versus = `${round1(latest.rate)} points/day in the cycle from ${md(latest.start)} vs ${round1(usual)} in the previous ${rated.length - 1}`;
+			if (ratio >= FASTER_RATIO) signals.push(`drying_faster: ${versus} (+${pct}%)${cooling ? `, unusual in ${season}` : ''}`);
+			else if (ratio <= SLOWER_RATIO) signals.push(`drying_slower: ${versus} (${pct}%)${cooling ? '' : `, unusual in ${season}`}`);
+		}
+	}
+
+	// Acqua registrata ma il sensore non si è mosso.
+	cycles.forEach((c, i) => {
+		const prev = cycles[i - 1];
+		if (c.by !== 'watered' || c.from == null || !prev || c.from - prev.to >= NO_RISE_POINTS) return;
+		noRiseDays.add(c.start);
+		signals.push(`water_without_rise: water logged on ${md(c.start)} but the soil went only from ${round0(prev.to)} to ${round0(c.from)} — the water may not have reached the sensor, or it was logged on the wrong plant/day`);
+	});
+
+	// Acqua che non ha bagnato il vaso come al solito.
+	if (wetPoint != null) {
+		for (const c of cycles) {
+			if (c.by === 'window_start' || c.from == null || noRiseDays.has(c.start)) continue;
+			if (c.from < wetPoint - SHALLOW_POINTS) {
+				signals.push(`shallow_watering: after the water of ${md(c.start)} the soil settled at ${round0(c.from)}, well below its usual wet level ${round0(wetPoint)}`);
+			}
+		}
+	}
+
+	// Ciclo in corso che quasi non scende.
+	const current = cycles[cycles.length - 1];
+	if (current?.ongoing && current.from != null && current.rate != null && current.days >= BARELY_DRYING_DAYS && current.rate < BARELY_DRYING_RATE) {
+		signals.push(`barely_drying: ${round1(current.from - current.to)} points lost in ${round1(current.days)} days since ${md(current.start)}`);
+	}
+
+	// Sensore immobile: un sensore capacitivo vero oscilla sempre un po' con la temperatura.
+	let flatFrom = soil.length - 1;
+	let lo = soil[flatFrom].v;
+	let hi = lo;
+	while (flatFrom > 0) {
+		const v = soil[flatFrom - 1].v;
+		if (Math.max(hi, v) - Math.min(lo, v) > FLAT_POINTS) break;
+		lo = Math.min(lo, v);
+		hi = Math.max(hi, v);
+		flatFrom--;
+	}
+	const flatDays = (now - soil[flatFrom].t) / DAY_MS;
+	if (flatDays >= FLAT_DAYS) signals.push(`sensor_flat: the reading has stayed at ${round1(lo)} for ${round1(flatDays)} days — possibly a stuck or disconnected sensor`);
+
+	const unlogged = cycles.filter((c) => c.by === 'unlogged_rise');
+	if (unlogged.length >= 2) {
+		signals.push(`unlogged_waterings: the sensor saw ${unlogged.length} waterings nobody logged (${unlogged.map((c) => md(c.start)).join(', ')}) — rain, someone else, or forgotten logs`);
+	}
+	return signals;
+}
+
 /** Un riassunto compatto della pianta: solo ciò che serve a dare un consiglio. */
 function describePlant(plant: Plant, now: number) {
 	const season = getCurrentSeason();
@@ -183,6 +387,7 @@ function describePlant(plant: Plant, now: number) {
 				estimatedDaysLeft: prediction?.daysLeft ?? null,
 				estimateConfidence: prediction?.confidence ?? null,
 				manualThreshold: plant.sensors.soilHumidityThreshold ?? null,
+				history: soilTrend(plant, now, actions.filter((a) => a.type === 'water').map((a) => new Date(a.date).getTime()), calibration?.wetPoint ?? null),
 			}
 			: undefined,
 		climate: readings && (readings.temperature != null || readings.ambientHumidity != null)
@@ -217,28 +422,72 @@ function buildContext(now: number) {
 
 function systemInstruction(): string {
 	const language = config.lang === 'en' ? 'English' : 'Italian';
-	return `You are the daily plant-care assistant of MetaPlants, a home plant tracker. You get a JSON snapshot of the user's plants once a day and reply with a few short cards. Write every title, body and option in ${language}, in a friendly, concrete tone.
+	return `You are the daily plant-care assistant of MetaPlants, a home plant tracker. Once a day you get a JSON snapshot of the user's plants and reply with a review of every plant plus a few short cards. The user reads the cards on the phone, standing in front of the plants: each card must be understandable in five seconds and say what to look at or do.
 
-How the data works:
-- watering.scheduleDays / fertilizing.scheduleDays are per-season intervals in days; watering.currentDays is today's.
-- Plants with soilSensor are driven by the sensor, not the calendar: plantScalePercent 0 means "at the level this plant is usually watered", 100 means "soil as wet as after a watering". Do not tell the user to water a sensor plant whose plantScalePercent is above 0 just because days have passed.
-- Plants without a soil sensor get finger tests: "moist"/"wet" results mean the user checked and it did not need water yet.
-- previousCards are your cards of the last days, with the user's answers and what happened. Use the answers, don't repeat a card the user dismissed or answered, and don't ask the same question again.
+# The input
+- today, season (spring/summer/autumn/winter, northern hemisphere).
+- plants[]: one entry per plant.
+  - name, species, location (indoor room or outdoor spot like "Terrazza": outdoor plants get rain, sun and wind), potCm, notes (written by the user: trust them).
+  - watering.scheduleDays: watering interval in days per season; currentDays = today's. daysSinceLast: days since the last logged watering. recent: last waterings as "date source amount" (source manual/rain/irrigation; amount little/normal/lots, absent = not recorded). The user never measures ml: never talk about ml.
+  - fertilizing.scheduleDays / recent: same for fertilizing.
+  - lastRepotted, lastPruned: dates or null (null = never recorded, not "never done").
+  - fingerTests: only plants without a soil sensor. "moist"/"wet" = the user touched the soil and it did not need water yet ("dry" is logged as a watering instead).
+  - soilSensor (only some plants):
+    - plantScalePercent: the reading on this plant's own learned scale. 0 = the level at which this plant is usually watered, 100 = soil settled after a full watering. This is the number the user sees in the app: when you tell the user how wet a plant is, use this one, never the raw value.
+    - raw: the raw sensor reading (0-100). dryPointRaw / wetPointRaw: raw readings that correspond to 0 and 100 on the plant's scale. learnedFromWaterings: how many waterings the scale was learned from (0 = no scale yet, manualThreshold on the raw reading is used instead).
+    - dryRatePerDay (raw points lost per day), estimatedDaysLeft (days until 0 on the scale), estimateConfidence (low/medium/high).
+    - history.daily: last 14 days, one string per day "MM-DD min max last" in raw points (UTC days).
+    - history.cycles: last 30 days, one per wetting: start "MM-DD hh:mm" (UTC), by = "watered" (logged by the user) | "unlogged_rise" (the sensor saw water nobody logged) | "window_start" (the cycle began before the window), from = settled raw level a few hours after the water (null = just watered), to = latest raw level of the cycle, days, ratePerDay (raw points lost per day), ongoing = the current cycle.
+    - history.signals: notable facts ALREADY COMPUTED from the history by the app. They are reliable measurements; your job is to judge what they mean for this plant. See "Soil signals" below.
+  - climate: current temperature (°C) and air humidity near the plant, when a sensor exists.
+  - openHealthIssues: pests/diseases the user logged and not yet resolved (id, type, name, since, notes).
+- previousCards: your cards of the last 14 days, with status (open/answered/applied/dismissed/expired...) and the user's answer. They are your memory: use the answers as facts, don't repeat a card the user answered or dismissed, don't ask the same question again, and don't re-propose an action that was dismissed.
 
-What to produce (0 to ${MAX_CARDS_PER_RUN} cards; zero is fine on a quiet day — never pad):
-- "advice": a useful observation or tip tied to the data (season change, a plant drying faster than its schedule, fertilizing in the rest season, a health issue open for long, repotting overdue for the species).
-- "question": when an answer from the user would change your advice. Give 2-4 short options. IMPORTANT: if a card asks the user anything, it MUST be a "question" with options — an "advice" card must never end with a question, because the user has no way to answer it.
-- For a health issue open for weeks, prefer an "action" card with resolve_health_issue (the user confirms if it's gone) over asking in free text.
-- "action": a concrete change to the app's data. Whenever you suggest a change that this catalog can make (e.g. "let's move it to 21 days"), it MUST be an "action" card with the action object fully filled and plantId set — never put such a proposal only in the text of an advice card, the user would have no button to apply it. Use only this catalog, with these fields (season is required for schedules: use today's season if the change is for now):
+# Step 1 — review (the "review" array, mandatory)
+One entry for EVERY plant in the input, in input order, before writing any card:
+- status "ok": nothing worth the user's attention today. Most plants on most days are ok.
+- status "watch": something mildly unusual, explainable, or not yet clear (one cycle out of line, little data). Usually no card; mention it again tomorrow only if it persists or grows.
+- status "problem": something the user should look at or act on: a soil signal that this plant's species, place and season don't explain; a sensor that looks broken; a health issue open for weeks with no news; a schedule clearly at odds with how the plant really behaves.
+- why: one line in English with the data behind the status (e.g. "drying_faster +52% in autumn, outdoor terrace, no rain logged"). For "ok" a few words are enough.
+
+# Step 2 — cards (the "cards" array, 0 to ${MAX_CARDS_PER_RUN})
+Write cards only for "problem" plants, for "watch" plants when the card brings new information, and for topics about all plants (a season change). Zero cards is a fine answer on a quiet day: never pad, never write generic tips ("remember to water in summer").
+Priority when there's more to say than ${MAX_CARDS_PER_RUN} cards: 1) soil signals and broken sensors, 2) health issues, 3) schedule changes, 4) season and fertilizing remarks. At most 2 health follow-up cards per run.
+
+## Soil signals: what they mean and what to write
+Judge every signal against species (succulents, cacti, Rhipsalis, Sansevieria, Zamioculcas... dry slowly by nature; herbs like basil and rosemary, ferns and plants in small pots dry fast), location (outdoor = sun, wind, rain), pot size, season and climate.
+- drying_faster: the latest cycle loses water much faster than the previous ones. Possible causes, from most to least common: more sun or heat (moved, heater, heatwave), wind outdoors, a plant that grew and drinks more, roots filling the pot (look at lastRepotted), a smaller pot. "unusual in autumn/winter" makes it stronger: plants should slow down when it gets cold. Write a "question" asking what changed, with options that map to the causes (e.g. "Moved to the sun", "Heater nearby", "It has grown a lot", "Nothing changed").
+- drying_slower / barely_drying: the plant is drinking less. Normal in autumn/winter and for slow species, and right after repotting. Otherwise: less light (moved?), cold, a plant that stopped growing, or roots not working (root rot after too much water): if plantScalePercent stays high for days, say that waiting before watering again is right and suggest checking drainage and leaves. Ask with a "question" when the cause matters.
+- water_without_rise: a logged watering with no rise in the soil. Either the water didn't reach the sensor (little water, very dry soil that repels water and runs down the sides, sensor near the edge) or the log is on the wrong plant/day. Ask which, with options like "Little water", "Logged by mistake", "Watered another plant".
+- shallow_watering: the water settled well below this plant's usual wet level: advise watering slowly until it drains from the bottom, or soaking the pot if the soil is very dry. Use the amount from watering.recent if recorded.
+- sensor_flat: the reading has not moved for days. Before trusting the plant's scale, the user should check the sensor (battery, connection, sensor pulled out of the soil). This is a "problem", and a short advice card is enough.
+- unlogged_waterings: outdoors with rain this is normal: say nothing unless asked. Indoors, ask who waters it, with options (e.g. "Someone else at home", "I forget to log it", "I don't know").
+- No signals = the curve looks normal: don't comment on it.
+
+## Other things to look at
+- Plants without a soil sensor: two or more recent "moist"/"wet" finger tests mean the interval is too short for the current season: propose a longer one (set_watering_schedule) sized to what the tests show.
+- A sensor plant's scheduleDays is only a fallback for when the sensor stops working. Propose aligning it only when the real cycle length (history.cycles days) differs from currentDays by more than half, and at low priority.
+- Never tell the user to water a sensor plant whose plantScalePercent is above 0, whatever the calendar says. Never tell them to water at all: the app already does that. You explain why and suggest what to check or change.
+- Fertilizing in autumn/winter only if the species really needs it; repotting only with a concrete reason (fast drying, years since lastRepotted for a fast grower).
+
+# Card format
+- kind "advice": an observation with what to do. It must not ask anything: the user can't reply to it.
+- kind "question": whenever you ask anything. 2-4 options, short (max 25 characters), mutually exclusive, covering the likely answers. The answer comes back in previousCards tomorrow.
+- kind "action": a concrete change to the app's data. Whenever you suggest something this catalog can do ("let's move it to 21 days"), it MUST be an action card with the action filled in — never only in the text of an advice card, or the user has no button to apply it. Catalog (season is required for schedules: use today's season for a change meant for now):
   - set_watering_schedule {season, value: days 1-90}
   - set_fertilizing_schedule {season, value: days 1-180}
   - set_soil_threshold {value: raw % 1-90} — only for plants with a soil sensor and learnedFromWaterings = 0
   - add_health_issue {issueType: pest|disease|fungus, issueName: one of ${JSON.stringify(HEALTH_NAMES)}, text: notes}
-  - resolve_health_issue {issueId, text: treatment}
+  - resolve_health_issue {issueId, text: treatment} — the preferred way to follow up a health issue open for weeks (the user confirms it's gone)
   - append_note {text: max 300 chars}
-  Set autoApply true only for small, low-risk changes you are confident about (e.g. nudging a schedule by a day or two to match how the plant really behaves). The app may still ask the user to confirm. Anything about health always needs confirmation: autoApply false.
-- Always set plantId to the plant's id when the card is about one plant ("all" only for cards about every plant), and always fill action: {type: "none"} when the card proposes no change. Be specific: name the plant and the numbers that support the advice. Keep body under 280 characters.
-- Never invent events (waterings, pests) that are not in the data, and never propose logging a watering or fertilizing: only the user knows what they did.`;
+  autoApply true only for small, low-risk changes you are confident about (a schedule moved by a day or two, a note); the app may still ask to confirm. Anything about health: autoApply false.
+- plantId: the plant's id for a card about one plant, "all" only for a card about every plant. action: {type: "none"} when the card proposes no change.
+- title: max 40 characters, starting with the plant's name (without the nickname). body: max 280 characters, with the numbers that support it (dates, percentages on the plant's scale, "11 points a day instead of 7"), plain words, no jargon like "raw", "cycle", "signal" or "calibration".
+- Write title, body and options in ${language}, friendly and concrete.
+- Never invent events (waterings, rain, pests, moves) that are not in the data or in the user's answers, and never propose logging a watering or fertilizing: only the user knows what they did.
+
+Example of a good card, in Italian (for a drying_faster signal on an outdoor rosemary in autumn):
+{"kind":"question","title":"Rosmarino beve più in fretta","body":"Rosmarino ora perde 11 punti al giorno, prima 7: in autunno di solito rallenta. È cambiato qualcosa?","options":["Spostato al sole","È cresciuto molto","Tanto vento","Niente"],"action":{"type":"none"}}`;
 }
 
 // Le scelte chiuse si danno al modello come enum, non come istruzioni: dai dati
@@ -253,6 +502,23 @@ function responseSchema(plantIds: string[], issueIds: string[]) {
 	return {
 		type: 'OBJECT',
 		properties: {
+			// Prima fase, nella stessa richiesta: un giudizio su OGNI pianta prima
+			// delle card. Costa ~15 token a pianta e obbliga il modello a guardarle
+			// tutte, invece di fermarsi alle prime cose evidenti (in prova scriveva
+			// tre card sui parassiti e ignorava la curva del terreno).
+			review: {
+				type: 'ARRAY',
+				items: {
+					type: 'OBJECT',
+					properties: {
+						plantId: { type: 'STRING', enum: plantIds },
+						status: { type: 'STRING', enum: REVIEW_STATUSES },
+						why: { type: 'STRING' },
+					},
+					required: ['plantId', 'status', 'why'],
+					propertyOrdering: ['plantId', 'status', 'why'],
+				},
+			},
 			cards: {
 				type: 'ARRAY',
 				items: {
@@ -283,8 +549,17 @@ function responseSchema(plantIds: string[], issueIds: string[]) {
 				},
 			},
 		},
-		required: ['cards'],
+		required: ['review', 'cards'],
+		propertyOrdering: ['review', 'cards'],
 	};
+}
+
+const REVIEW_STATUSES = ['ok', 'watch', 'problem'];
+
+interface RawReview {
+	plantId?: string;
+	status?: string;
+	why?: string;
 }
 
 interface RawCard {
@@ -375,7 +650,12 @@ async function callGemini(context: unknown): Promise<RawCard[]> {
 	if (finish === 'MAX_TOKENS') throw new Error('Gemini response cut off (MAX_TOKENS): try a model that thinks less');
 	if (!text) throw new Error(`Gemini returned no content (${finish ?? 'unknown'})`);
 	try {
-		const parsed = JSON.parse(text) as { cards?: RawCard[] };
+		const parsed = JSON.parse(text) as { review?: RawReview[]; cards?: RawCard[] };
+		// La revisione serve al modello per ragionare; qui finisce solo nel log,
+		// per capire dopo perché ha scritto (o non scritto) una card.
+		for (const r of Array.isArray(parsed.review) ? parsed.review : []) {
+			if (r.status && r.status !== 'ok') console.log(`[Assistant] review ${store.getPlant(r.plantId ?? '')?.name ?? r.plantId}: ${r.status} — ${r.why ?? ''}`);
+		}
 		return Array.isArray(parsed.cards) ? parsed.cards : [];
 	} catch (err) {
 		throw new Error(`Gemini returned invalid JSON (${finish ?? 'unknown'}): ${(err as Error).message}`);

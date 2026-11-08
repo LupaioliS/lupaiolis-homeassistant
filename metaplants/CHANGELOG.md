@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.15.3
+
+**Assistant: it now sees how each plant has been drying, and looks at every plant.** Until now it only got the current soil reading, so it couldn't tell a plant drying normally from one that has barely moved in a week.
+
+- Each plant with a soil sensor sends a light summary of its history: the last 14 days (minimum, maximum and last reading per day) and the cycles of the last 30 (from one watering to the next: level reached after the water, level now, points lost per day, rises the sensor saw but nobody logged)
+- The add-on itself spots what's notable and hands it over as ready-made facts: drying much faster or slower than the previous cycles (and whether that's unusual for the season), a logged watering the sensor never saw, water that didn't soak the pot as usual, a cycle that has barely dropped for days, a sensor stuck on the same value, waterings nobody logged. The model only judges what they mean for that species and spot, and says it in plain words
+- Before writing cards the assistant must now go through every plant (ok / to watch / problem). In tests it used to write three cards about pests and ignore the soil; on the same data it now asks why the rosemary is drinking 53% faster in autumn and why a logged watering of the kentia never reached the sensor
+- The instructions are much more specific: what each field means, which causes to consider for each pattern, priorities, card length, no jargon. Measured with 14 plants: ~9,000 input and ~1,650 output tokens per check; still one request a day
+
+**A plant whose soil sensor was moved elsewhere no longer gets estimates from it.** Its old readings kept producing a learned scale and a "high confidence" estimate (the basil showed "🧠 ~2d" months after its sensor went to the kentia), and with the estimate in charge it never asked for the finger test. Without a soil sensor configured the history is now ignored; it's kept, so the scale comes back if the sensor does.
+
+**Cards: one answer to "when do I water?".**
+
+- On a plant with a sensor the water pill now says it all — *Soil still moist · ~2d* — and the separate "Estimate" pill is gone (it stays only while the estimate is still learning)
+- On a plant without a sensor the "Estimate" pill is gone: it was just the average gap between waterings, i.e. the schedule said a second time
+- The "new suggestion: water every N days" button no longer appears on plants with a working sensor, where the calendar never raises the alert anyway (it's still in the form, and the assistant proposes it)
+- "Water received?" now says when: *The soil of Elsa suddenly got wet yesterday at 18:40. Did you water it?*
+- Rounded temperature, air humidity and raw soil readings (46.04° → 46°); "Health issues (4)" counts only the open ones; "last 1 waterings" fixed
+- The plant form no longer overflows the screen on phones (sensor menus with long entity names)
+
 ## 1.15.2
 
 **Assistant: proposals always have their Apply button.** "Let's move it to 21 days" could arrive with no Apply button: the model had written junk in the plant field ("<id> companion: … placeholder text") or left out the action, and the card was silently turned into plain advice. The response format now only allows real plant and health-issue ids and always requires an action (or an explicit "none"); a schedule change without a season means the current one; a stray id is recovered from the text around it; a proposal labelled as advice still gets its button; and any action still rejected is logged with the reason. Checked over three real runs: every proposal arrived complete
